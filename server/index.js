@@ -47,11 +47,12 @@ async function requireProject(req, res, next) {
   if (!raw || raw.length > 256) return res.status(401).json({ error: 'Project API key required' });
   try {
     const result = await pool.query(
-      'SELECT project_id FROM api_keys WHERE key_hash=$1 AND revoked_at IS NULL LIMIT 1',
+      'SELECT project_id,key_type FROM api_keys WHERE key_hash=$1 AND revoked_at IS NULL LIMIT 1',
       [sha256(raw)]
     );
     if (!result.rowCount) return res.status(401).json({ error: 'Invalid project API key' });
     req.projectId = result.rows[0].project_id;
+    req.projectKeyType = result.rows[0].key_type;
     await pool.query('UPDATE api_keys SET last_used_at=NOW() WHERE key_hash=$1', [sha256(raw)]);
     next();
   } catch {
@@ -59,7 +60,10 @@ async function requireProject(req, res, next) {
   }
 }
 function requireProjectAdmin(req, res, next) {
-  requireAdmin(req, res, () => requireProject(req, res, next));
+  requireAdmin(req, res, () => requireProject(req, res, () => {
+    if (req.projectKeyType !== 'secret') return res.status(403).json({ error: 'Secret project key required' });
+    next();
+  }));
 }
 function validSubscription(s) {
   return s && typeof s.endpoint === 'string' && s.endpoint.startsWith('https://') &&
@@ -98,7 +102,8 @@ app.post('/v1/projects', async (req, res) => {
     }
   }
 
-  const rawKey = 'ek_live_' + crypto.randomBytes(32).toString('base64url');
+  const publicKey = 'ek_pub_' + crypto.randomBytes(32).toString('base64url');
+  const secretKey = 'ek_sec_' + crypto.randomBytes(32).toString('base64url');
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -106,13 +111,12 @@ app.post('/v1/projects', async (req, res) => {
       'INSERT INTO projects(name,slug,website_url) VALUES($1,$2,$3) RETURNING id,name,slug,website_url,created_at',
       [name.trim(), slug, normalizedWebsite]
     );
-    const keyPrefix = rawKey.slice(0, 16);
     await client.query(
-      'INSERT INTO api_keys(project_id,name,key_prefix,key_hash) VALUES($1,$2,$3,$4)',
-      [project.rows[0].id, keyName.trim(), keyPrefix, sha256(rawKey)]
+      'INSERT INTO api_keys(project_id,name,key_prefix,key_hash,key_type) VALUES($1,$2,$3,$4,$5),($1,$6,$7,$8,$9)',
+      [project.rows[0].id, 'Public browser key', publicKey.slice(0, 16), sha256(publicKey), 'public', keyName.trim(), secretKey.slice(0, 16), sha256(secretKey), 'secret']
     );
     await client.query('COMMIT');
-    res.status(201).json({ project: project.rows[0], apiKey: rawKey, warning: 'Copy this API key now. It cannot be displayed again.' });
+    res.status(201).json({ project: project.rows[0], publicKey, secretKey, warning: 'Store the secret key securely. The public key is designed for browser SDK use; both keys are shown only once.' });
   } catch (error) {
     await client.query('ROLLBACK');
     if (error.code === '23505') return res.status(409).json({ error: 'Project slug already exists' });
