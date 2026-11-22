@@ -51,6 +51,16 @@ export function createAccountRouter(pool) {
     } catch { res.status(500).json({ error: 'Project lookup failed.' }); }
   }
 
+  router.get('/auth/google', (req, res) => {
+    if (!supabaseUrl || !anonKey) return res.status(503).json({ error: 'Supabase Auth is not configured.' });
+    const redirectTo = new URL('/dashboard.html', req.get('origin') || `https://${req.get('host')}`).toString();
+    const authorize = new URL(supabaseUrl + '/auth/v1/authorize');
+    authorize.searchParams.set('provider', 'google');
+    authorize.searchParams.set('redirect_to', redirectTo);
+    authorize.searchParams.set('apikey', anonKey);
+    res.redirect(302, authorize.toString());
+  });
+
   router.post('/auth/signup', limitAuth, async (req, res) => {
     const { email, password } = req.body || {};
     if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 ||
