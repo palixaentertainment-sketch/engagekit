@@ -70,6 +70,58 @@ function validPath(value) {
   return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\\\');
 }
 
+
+const setupKey = process.env.ENGAGEKIT_SETUP_KEY;
+
+app.post('/v1/projects', async (req, res) => {
+  if (!setupKey) return res.status(503).json({ error: 'Project setup is not enabled' });
+  if (!safeEqual(req.get('x-engagekit-setup-key'), setupKey))
+    return res.status(401).json({ error: 'Unauthorized' });
+
+  const { name, slug, websiteUrl, keyName = 'Default key' } = req.body || {};
+  if (typeof name !== 'string' || name.trim().length < 2 || name.trim().length > 100)
+    return res.status(400).json({ error: 'Project name must be 2-100 characters' });
+  if (typeof slug !== 'string' || !/^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/.test(slug))
+    return res.status(400).json({ error: 'Slug must be 1-50 lowercase letters, numbers or hyphens' });
+  if (typeof keyName !== 'string' || !keyName.trim() || keyName.length > 80)
+    return res.status(400).json({ error: 'Key name must be 1-80 characters' });
+
+  let normalizedWebsite = null;
+  if (websiteUrl) {
+    try {
+      const parsed = new URL(websiteUrl);
+      if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password)
+        throw new Error('Invalid URL');
+      normalizedWebsite = parsed.toString();
+    } catch {
+      return res.status(400).json({ error: 'Website URL must be a valid HTTP or HTTPS URL' });
+    }
+  }
+
+  const rawKey = 'ek_live_' + crypto.randomBytes(32).toString('base64url');
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const project = await client.query(
+      'INSERT INTO projects(name,slug,website_url) VALUES($1,$2,$3) RETURNING id,name,slug,website_url,created_at',
+      [name.trim(), slug, normalizedWebsite]
+    );
+    const keyPrefix = rawKey.slice(0, 16);
+    await client.query(
+      'INSERT INTO api_keys(project_id,name,key_prefix,key_hash) VALUES($1,$2,$3,$4)',
+      [project.rows[0].id, keyName.trim(), keyPrefix, sha256(rawKey)]
+    );
+    await client.query('COMMIT');
+    res.status(201).json({ project: project.rows[0], apiKey: rawKey, warning: 'Copy this API key now. It cannot be displayed again.' });
+  } catch (error) {
+    await client.query('ROLLBACK');
+    if (error.code === '23505') return res.status(409).json({ error: 'Project slug already exists' });
+    res.status(500).json({ error: 'Project creation failed' });
+  } finally {
+    client.release();
+  }
+});
+
 app.get('/health', async (_req, res) => {
   try { await pool.query('SELECT 1'); res.json({ ok: true }); }
   catch { res.status(503).json({ ok: false }); }
