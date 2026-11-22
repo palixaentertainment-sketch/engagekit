@@ -15,6 +15,7 @@ CREATE TABLE IF NOT EXISTS api_keys (
   name TEXT NOT NULL DEFAULT 'Default key',
   key_prefix TEXT NOT NULL,
   key_hash TEXT NOT NULL UNIQUE,
+  key_type TEXT NOT NULL DEFAULT 'secret' CHECK (key_type IN ('public','secret')),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   last_used_at TIMESTAMPTZ,
   revoked_at TIMESTAMPTZ
