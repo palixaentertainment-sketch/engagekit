@@ -1,0 +1,1 @@
+import {subscribeToPush} from '../src/web-push.js';const apiUrl='https://YOUR-API.example',publicKey='YOUR_VAPID_PUBLIC_KEY';document.querySelector('#subscribe').onclick=async()=>{try{const s=await subscribeToPush({apiUrl,publicKey});document.querySelector('#msg').textContent='Subscribed '+s.subscriberId;}catch(e){document.querySelector('#msg').textContent=e.message;}};

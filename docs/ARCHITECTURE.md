@@ -1,0 +1,1 @@
+SDK browser -> event API -> Postgres event table. Browser service worker -> Push API subscription -> API -> Postgres. Dashboard -> admin API -> campaigns. VAPID push -> service worker -> OS notification -> click opens site. Production needs auth, tenant isolation, queue, throttling, safe endpoint validation, audit logs, delivery tracking, and security review.

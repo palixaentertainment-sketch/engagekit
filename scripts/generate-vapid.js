@@ -1,1 +1,2 @@
-import webpush from 'web-push';const k=webpush.generateVAPIDKeys();console.log('Add to .env; keep private key secret:\nVAPID_PUBLIC_KEY='+k.publicKey+'\nVAPID_PRIVATE_KEY='+k.privateKey+'\nVAPID_SUBJECT=mailto:you@example.com');
+import webpush from 'web-push';
+const k=webpush.generateVAPIDKeys();console.log('VAPID_PUBLIC_KEY='+k.publicKey);console.log('VAPID_PRIVATE_KEY='+k.privateKey);console.log('VAPID_SUBJECT=mailto:you@example.com');
