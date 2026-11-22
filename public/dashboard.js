@@ -1,12 +1,37 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const API = '/v1';
-  const state = { token: localStorage.getItem('ek_access_token') || '', mode: 'signin', project: null, projects: [], subscribers: [], events: [] };
+  const state = { demo: true, token: '', mode: 'signin', project: null, projects: [], subscribers: [], events: [] };
   const esc = (v='') => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const date = v => v ? new Date(v).toLocaleString() : '—';
   const show = (el, yes=true) => el?.classList.toggle('hidden', !yes);
   const message = (id, text, error=false) => { const el=$(id); if(el){el.textContent=text;el.classList.toggle('error',error);} };
+  function demoResponse(path, options={}) {
+    const method = options.method || 'GET';
+    const sampleProject = { id:'demo-project-1', name:'Acme Website', slug:'acme-website', website_url:'https://example.com', subscribers:1284, events:9360, campaigns:12, created_at:'2026-10-01T10:00:00Z' };
+    const sampleEvents = [
+      {id:'ev-101',name:'page_view',user_id:'visitor_84',timestamp:'2026-11-22T10:42:00Z',properties:{page:'/pricing'}},
+      {id:'ev-102',name:'signup',user_id:'visitor_12',timestamp:'2026-11-22T10:39:00Z',properties:{source:'newsletter'}},
+      {id:'ev-103',name:'button_click',user_id:'visitor_41',timestamp:'2026-11-22T10:31:00Z',properties:{button:'Get started'}},
+      {id:'ev-104',name:'page_view',user_id:'visitor_07',timestamp:'2026-11-22T10:28:00Z',properties:{page:'/blog'}},
+      {id:'ev-105',name:'purchase',user_id:'visitor_29',timestamp:'2026-11-22T10:20:00Z',properties:{plan:'pro'}}
+    ];
+    if(path==='/account/projects' && method==='GET') return {projects:[sampleProject]};
+    if(path==='/account/projects' && method==='POST') { const p={...sampleProject,id:'demo-project-'+Date.now(),name:JSON.parse(options.body||'{}').name||'New Demo Project',slug:JSON.parse(options.body||'{}').slug||'new-demo-project',website_url:JSON.parse(options.body||'{}').websiteUrl||null,subscribers:0,events:0,campaigns:0};state.projects.unshift(p);return {project:p,publicKey:'ek_pub_demo_sample',secretKey:'ek_sec_demo_sample'}; }
+    if(path==='/account/me') return {user:{email:'demo@engagekit.test'}};
+    if(path.endsWith('/overview')) return {subscribers:1284,events:9360,campaigns:12,events7d:2450};
+    if(path.endsWith('/events')) return {events:sampleEvents};
+    if(path.endsWith('/subscribers')) return {subscribers:Array.from({length:8},(_,i)=>({id:'subscriber_'+(i+1),created_at:'2026-11-'+String(22-i).padStart(2,'0')+'T09:00:00Z',updated_at:'2026-11-22T10:00:00Z'}))};
+    if(path.endsWith('/campaigns')) return {campaigns:[{id:'c1',title:'November product update',status:'sent',sent:1200,failed:12,created_at:'2026-11-20T11:00:00Z'},{id:'c2',title:'Welcome campaign',status:'sent',sent:1180,failed:4,created_at:'2026-11-15T11:00:00Z'}]};
+    if(path.endsWith('/keys')) return {keys:[{id:'k1',name:'Production browser key',key_prefix:'ek_pub_7af2',key_type:'public',created_at:'2026-11-01T10:00:00Z',revoked_at:null}]};
+    if(path.endsWith('/push/send')) return {sent:1284,failed:0,total:1284};
+    if(path.endsWith('/keys') && method==='POST') return {secret:'ek_pub_demo_new_key_not_real'};
+    if(method==='PATCH') return {project:{...state.project,name:JSON.parse(options.body||'{}').name||state.project.name,website_url:JSON.parse(options.body||'{}').websiteUrl||null}};
+    if(method==='DELETE') {state.projects=state.projects.filter(p=>p.id!==state.project?.id);return {ok:true};}
+    return {ok:true};
+  }
   async function request(path, options={}) {
+    if(state.demo) return demoResponse(path,options);
     const headers = {'content-type':'application/json', ...(options.headers||{})};
     if(state.token) headers.authorization='Bearer '+state.token;
     let response;
@@ -59,5 +84,5 @@
   function download(name,rows){const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download=name;a.click();URL.revokeObjectURL(a.href);}
   $('download-subs').addEventListener('click',()=>download('engagekit-subscribers.csv',[['id','created_at','updated_at'],...state.subscribers.map(x=>[x.id,x.created_at,x.updated_at])]));$('download-events').addEventListener('click',()=>download('engagekit-events.csv',[['id','name','user_id','timestamp','properties'],...state.events.map(x=>[x.id,x.name,x.user_id,x.timestamp,JSON.stringify(x.properties)])]));
   setMode('signin');
-  if(state.token)request('/account/me').then(d=>appView(d.user)).catch(()=>{state.token='';localStorage.removeItem('ek_access_token');authView();});else authView();
+  if(state.demo){ localStorage.removeItem('ek_access_token'); show($('auth-view'),false); show($('app-view'),true); show($('demo-banner'),true); $('user-label').textContent='Demo workspace'; state.projects=[]; loadProjects(); } else if(state.token)request('/account/me').then(d=>appView(d.user)).catch(()=>{state.token='';localStorage.removeItem('ek_access_token');authView();}); else authView();
 })();
