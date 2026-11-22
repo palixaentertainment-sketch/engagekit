@@ -1,53 +1,32 @@
 # EngageKit
 
-Web Push notifications and engagement tools for websites. Early prototype for collecting events and delivering native browser push notifications to subscribed visitors.
+Web Push notifications and engagement tools for websites. EngageKit is an early-stage project; the hosted URL currently serves a static preview.
 
 ## Included
-- JavaScript SDK: identify/track, queue, listeners and callback rules
-- HTTP event adapter
-- Node/Express API with PostgreSQL persistence
-- VAPID key generator
-- Browser subscription helper and service worker
-- Static dashboard for subscriber overview and sending push campaigns
+- JavaScript SDK and event adapter
+- Node/Express API prototype
+- PostgreSQL schema and migration
+- VAPID key generator and browser service worker
+- Static dashboard preview
 
-## Quick start
+## Database foundation
 
-Prerequisites: Node.js 20+ and a PostgreSQL database.
+The schema is designed for multiple customer websites (projects). Each project owns its API keys, subscribers, events, and campaigns. API keys must be stored as hashes; only show a newly generated raw key once.
 
-1. Clone the repository and install dependencies:
-   ```bash
-   npm install
-   ```
-2. Copy `.env.example` to `.env` and set `DATABASE_URL`, `ENGAGEKIT_ADMIN_KEY`, and your allowed website origins.
-3. Generate VAPID keys:
-   ```bash
-   npm run vapid
-   ```
-   Put the generated public/private keys and a mailto VAPID subject in `.env`.
-4. Create the database tables:
-   ```bash
-   npm run db:setup
-   ```
-   This runs `server/schema.sql` against the configured database. Alternatively, run `psql "$DATABASE_URL" -f server/schema.sql`.
-5. Start the API:
-   ```bash
-   npm start
-   ```
-6. Confirm it is running at `GET /health` (should return `{"ok":true}`).
+For a new database, apply `server/schema.sql`. To upgrade a database created by the original single-project prototype, apply `server/migrations/001_multi_tenant_foundation.sql`. The migration preserves existing subscribers and events by assigning them to a project named **Legacy EngageKit project**.
 
-## Web Push setup
+Prerequisites: PostgreSQL with permission to create the `pgcrypto` extension.
 
-Serve `public/engagekit-sw.js` from the website's root over HTTPS so its service-worker scope can cover the site. Fetch `GET /v1/push/public-key`, then call `subscribeToPush({apiUrl,publicKey})` from the browser on a user-initiated action. Notification permission must be granted by the visitor. Web Push delivery requires VAPID keys and a valid saved subscription.
+## Local setup
 
-## API routes
+1. Install dependencies: `npm install`
+2. Copy `.env.example` to `.env` and configure `DATABASE_URL`.
+3. Generate VAPID keys: `npm run vapid`.
+4. Apply the schema: `npm run db:setup` (new database), or run the migration SQL manually for an existing database.
+5. Start the prototype API: `npm start`.
 
-- `GET /health`
-- `GET /v1/push/public-key`
-- `POST /v1/push/subscribe`
-- `POST /v1/push/unsubscribe`
-- `POST /v1/events`
-- Admin endpoints: `GET /v1/admin/overview`, `GET /v1/admin/subscribers`, `GET /v1/admin/events`, `POST /v1/admin/push/send` (header `x-engagekit-admin-key`).
+## Important status
 
-## Security and production readiness
+The current hosted Vercel deployment is a static preview, not a production API. The existing Express routes have not yet been converted to serverless handlers or wired to project-scoped API-key authentication. Do not use this prototype to store production subscriber data or send customer campaigns until that backend work and a security review are complete.
 
-Prototype only. Event ingestion is currently unauthenticated (the SDK adapter's `apiKey` header is not validated by the API); the admin uses a shared key; public subscription endpoints lack robust abuse/endpoint validation; there is no rate limiting, tenant/project isolation, push queue/retry, or audit logging. Treat the event adapter key as a public client identifier, not a secret. Before production add proper authentication, tenant separation, key rotation, request limits, abuse protection, SSRF safeguards, logging/auditing, queued delivery/retries and a security review. Never commit `.env` or VAPID private keys.
+Never commit `.env`, raw API keys, database credentials, or VAPID private keys.
