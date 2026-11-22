@@ -28,7 +28,7 @@ app.use(cors({
     return callback(new Error('Origin blocked'));
   },
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['content-type', 'x-engagekit-key', 'x-engagekit-admin-key', 'x-engagekit-setup-key']
+  allowedHeaders: ['content-type', 'authorization', 'x-engagekit-key', 'x-engagekit-admin-key', 'x-engagekit-setup-key']
 }));
 app.use(express.json({ limit: '256kb' }));
 app.use('/v1', createAccountRouter(pool));
