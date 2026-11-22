@@ -27,6 +27,6 @@ See `docs/SETUP.md` for endpoint and integration details.
 
 ## Current limitations
 
-The hosted Vercel deployment is still a static preview, not a production API. Project provisioning is founder-only; customer accounts, billing, key rotation UI, rate limiting, quotas, and background campaign delivery are not implemented. Do not expose privileged API keys in browser code or use this prototype for production subscriber data until deployment and security work are complete.
+The hosted Vercel deployment is still a static preview, not a production API. Project provisioning is founder-only; customer accounts, billing, key rotation UI, rate limiting, quotas, and background campaign delivery are not implemented. Public browser keys are separate from secret server-side keys. Do not expose privileged API keys in browser code or use this prototype for production subscriber data until deployment and security work are complete.
 
 Never commit `.env`, raw API keys, database credentials, or VAPID private keys.
