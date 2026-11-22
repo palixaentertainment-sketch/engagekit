@@ -127,8 +127,20 @@ app.post('/v1/projects', async (req, res) => {
 });
 
 app.get('/health', async (_req, res) => {
-  try { await pool.query('SELECT 1'); res.json({ ok: true }); }
-  catch { res.status(503).json({ ok: false }); }
+  try {
+    await pool.query('SELECT 1');
+    res.json({ ok: true });
+  } catch (error) {
+    // Log only the PostgreSQL error code and a sanitized message. Never log
+    // DATABASE_URL, connection options, or credentials.
+    const message = String(error?.message || 'Unknown database error')
+      .replace(/postgres(?:ql)?:\/\/[^\s"']+/gi, '[redacted connection string]');
+    console.error('[health] database check failed', {
+      code: error?.code || 'UNKNOWN',
+      message
+    });
+    res.status(503).json({ ok: false });
+  }
 });
 app.get('/v1/push/public-key', (_req, res) =>
   pub ? res.json({ publicKey: pub }) : res.status(503).json({ error: 'VAPID missing' })
