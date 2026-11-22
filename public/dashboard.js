@@ -9,9 +9,24 @@
   async function request(path, options={}) {
     const headers = {'content-type':'application/json', ...(options.headers||{})};
     if(state.token) headers.authorization='Bearer '+state.token;
-    const response=await fetch(API+path,{...options,headers});
-    const data=await response.json().catch(()=>({}));
-    if(!response.ok) throw new Error(data.error||data.message||'Something went wrong.');
+    let response;
+    try {
+      response=await fetch(API+path,{...options,headers,signal:options.signal||AbortSignal.timeout(20000)});
+    } catch(error) {
+      const reason=error?.name==='TimeoutError'?'The server took too long to respond (20 seconds).':'The browser could not reach the EngageKit server.';
+      throw new Error(reason+' Check your connection, then try again. ('+(error?.name||'NetworkError')+')');
+    }
+    const raw=await response.text();
+    let data={};
+    try { data=raw?JSON.parse(raw):{}; } catch {}
+    if(!response.ok) {
+      const detail=data.error||data.message||data.msg||data.error_description;
+      const type=response.headers.get('content-type')||'unknown content type';
+      const requestId=response.headers.get('x-vercel-id')||response.headers.get('sb-request-id')||response.headers.get('x-request-id');
+      const snippet=String(detail||raw||'The server returned an empty response.').replace(/\\s+/g,' ').slice(0,500);
+      throw new Error('Request failed (HTTP '+response.status+'). '+snippet+' [Response: '+type+(requestId?'; Request ID: '+requestId:'')+']');
+    }
+    if(raw&&!Object.keys(data).length) throw new Error('The server returned an unreadable response (HTTP '+response.status+', '+(response.headers.get('content-type')||'unknown content type')+').');
     return data;
   }
   function authView(){show($('auth-view'),true);show($('app-view'),false);$('user-label').textContent='';show($('signout'),false);}
