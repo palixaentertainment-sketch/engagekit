@@ -4,7 +4,7 @@ Requires Node 20+ and PostgreSQL. Run `npm install`, create a PostgreSQL databas
 
 ### Create a project
 
-Project provisioning is currently founder-operated; customer accounts and self-service billing are not implemented. Send a `POST /v1/projects` request with the `x-engagekit-setup-key` header and JSON fields `name`, `slug`, and optional `websiteUrl` / `keyName`. The API returns the project and a raw project API key once. Store it securely; only its SHA-256 hash is persisted. Slugs must be unique. Disable provisioning by removing `ENGAGEKIT_SETUP_KEY` after initial setup.
+Project provisioning is currently founder-operated; customer accounts and self-service billing are not implemented. Send a `POST /v1/projects` request with the `x-engagekit-setup-key` header and JSON fields `name`, `slug`, and optional `websiteUrl` / `keyName`. The API returns two keys once: a public browser key (`ek_pub_...`) and a secret server-side key (`ek_sec_...`). Only SHA-256 hashes are persisted. The public key can be embedded in the browser SDK; the secret key must never be exposed publicly. Slugs must be unique. Disable provisioning by removing `ENGAGEKIT_SETUP_KEY` after initial setup.
 
 Example request body:
 
@@ -12,7 +12,7 @@ Example request body:
 { "name": "My Website", "slug": "my-website", "websiteUrl": "https://example.com" }
 ```
 
-Use the returned project API key as `x-engagekit-key` for event ingestion and push subscription routes. Admin dashboard routes additionally require `x-engagekit-admin-key`. The API key is a secret and must only be used from trusted server-side code for authenticated admin operations; browser push subscription requires a public client-safe project key design before general customer launch. Do not expose privileged keys in frontend code.
+Use the public key as `x-engagekit-key` for browser event ingestion and push subscription. Use the secret key for server-side integrations. Admin dashboard routes require both `x-engagekit-admin-key` and a secret project key. Never expose the secret key in frontend code.
 
 ### Website integration
 
