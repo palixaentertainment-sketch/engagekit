@@ -32,7 +32,7 @@ export class EngageKit {
   addRule(rule) {
     this.#assertOpen(); if (!rule || typeof rule.id !== 'string' || !rule.id.trim()) throw new TypeError('Rule needs a unique string id');
     if (typeof rule.event !== 'string' || !rule.event.trim()) throw new TypeError('Rule needs an event name');
-    if (typeof rule.action !== 'function') throw new TypeTypeError('Rule needs an action callback');
+    if (typeof rule.action !== 'function') throw new TypeError('Rule needs an action callback');
     this.rules.set(rule.id, { ...rule, enabled: rule.enabled !== false }); return this;
   }
   removeRule(id) { this.rules.delete(id); return this; }
