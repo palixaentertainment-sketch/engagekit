@@ -1,4 +1,4 @@
-import app from '../server/index.js';
+import { app } from '../server/index.js';
 
 // Vercel routes /api/* here. Strip the deployment prefix so Express
 // receives the same /health and /v1/* paths used by local development.
