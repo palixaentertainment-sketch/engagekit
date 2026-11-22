@@ -1,45 +1,69 @@
 # EngageKit
 
-Web Push notifications and engagement tools for websites. EngageKit is an early-stage project; the hosted URL currently serves a static preview.
+EngageKit is a self-service website engagement platform for browser push notifications and event tracking.
 
-## Included
-- JavaScript SDK and event adapter
-- Node/Express API prototype with project-scoped API-key authentication
-- PostgreSQL multi-project schema and migration
-- One-time project provisioning and API-key generation (founder setup key)
-- VAPID key generator and browser service worker
-- Static dashboard preview
+## Customer workspace
 
-## Database
+The responsive dashboard at `/dashboard.html` now includes:
+- Email/password account registration, sign-in and password-reset email requests through Supabase Auth.
+- Customer-owned website projects with strict owner checks on every project-management route.
+- Project overview metrics, subscriber list, recent events, campaign history and CSV exports.
+- Push notification composer and delivery results.
+- API key creation and revocation; raw keys are returned only at creation time.
+- Project settings and permanent project deletion.
+- Website integration guidance and mobile-friendly navigation.
 
-For a new database, apply `server/schema.sql`. To upgrade the original single-project prototype, apply `server/migrations/001_multi_tenant_foundation.sql`. The migration preserves existing subscribers and events by assigning them to **Legacy EngageKit project**. PostgreSQL must permit creation of the `pgcrypto` extension.
+## Deployment requirements
+
+Use Node 20+, Vercel, Supabase Auth and a PostgreSQL database. Set these Vercel environment variables:
+
+- `DATABASE_URL`: Supabase Transaction Pooler connection string (use the correct pooler mode/port).
+- `PGSSL=true` when required by the database provider.
+- `SUPABASE_URL`: Supabase project URL.
+- `SUPABASE_ANON_KEY`: Supabase publishable/anon key (never use the service-role key here).
+- `VAPID_PUBLIC_KEY` and `VAPID_PRIVATE_KEY`: a matching VAPID key pair generated with `npm run vapid`.
+- `VAPID_SUBJECT`: a valid mailto contact for push delivery.
+- `ALLOWED_ORIGINS`: comma-separated trusted EngageKit dashboard origins. Customer project origins are also checked against the website URL saved on each project.
+- `ENGAGEKIT_ADMIN_KEY` and `ENGAGEKIT_SETUP_KEY`: legacy administrative provisioning secrets. Rotate any values previously shared in chat.
+
+Configure Supabase Auth:
+1. Enable Email provider.
+2. Set the production Site URL to the deployed EngageKit origin.
+3. Configure allowed redirect URLs for password recovery.
+4. Choose whether email confirmation is required.
+
+## Database setup
+
+For a new database, apply `server/schema.sql`, then apply:
+- `server/migrations/002_customer_accounts.sql`
+
+For an existing prototype database, first apply `server/migrations/001_multi_tenant_foundation.sql` if it has not already been applied, then apply `002_customer_accounts.sql`.
+
+The account migration adds `projects.owner_id` referencing `auth.users`. Existing founder projects remain unowned until explicitly assigned. Do not expose legacy projects to customer accounts without reviewing ownership.
 
 ## Local setup
 
 1. Run `npm install`.
-2. Copy `.env.example` to `.env` and configure PostgreSQL, separate admin/setup secrets, and VAPID keys.
-3. Run `npm run vapid` to generate VAPID credentials.
-4. Apply the schema or migration as appropriate.
+2. Configure the environment variables above in `.env`.
+3. Generate VAPID credentials with `npm run vapid`.
+4. Apply the database schema and migrations.
 5. Run `npm start`.
-6. Provision a project using `POST /v1/projects` with `x-engagekit-setup-key`. The raw project API key is returned once; store it securely.
+6. Open `/dashboard.html`.
 
-See `docs/SETUP.md` for endpoint and integration details.
+## Website integration
 
-## Customer accounts (new)
+A project uses a public key in browser code for push subscription and event ingestion. Secret keys are for trusted server-side integrations only.
 
-The customer dashboard is available at `/dashboard.html`. It supports Supabase email/password sign-up and sign-in, creating owner-scoped projects, showing generated API keys once, and viewing project subscriber/event/campaign counts.
+1. Add `public/engagekit-sw.js` to the root of the customer website as `/engagekit-sw.js`.
+2. Fetch `GET /v1/push/public-key` from the EngageKit API to obtain the VAPID public key.
+3. Use the public project API key with `x-engagekit-key` for `POST /v1/push/subscribe`, `POST /v1/push/unsubscribe` and `POST /v1/events`.
+4. Ask for notification permission only after a visitor actively clicks a subscribe button.
+5. Save the website URL in project settings so browser-origin checks can validate the customer site.
 
-Before deploying this feature:
+HTTPS is required for browser push except on localhost.
 
-1. Add Vercel environment variables `SUPABASE_URL` (the project URL) and `SUPABASE_ANON_KEY` (the Supabase publishable/anon key).
-2. Run `server/migrations/002_customer_accounts.sql` in the Supabase SQL Editor.
-3. Configure Supabase Auth email confirmation and your production site URL/redirect settings.
-4. Deploy the feature branch and test sign-up, sign-in, project creation, and cross-account access with two separate test users.
+## Security and operational status
 
-The dashboard stores the Supabase access token in browser local storage for this prototype. Add a hardened session strategy, rate limits, email abuse protections, and key rotation/revocation controls before public production use.
+This is an early-stage SaaS implementation, not a claim of production certification. Authentication endpoints have basic per-instance throttling; production should add a shared rate-limit store, abuse monitoring, secure session cookies or a hardened token lifecycle, automated backups, billing/quotas, audit logs, and queued campaign delivery for large audiences. The dashboard currently stores Supabase access tokens in localStorage; do not treat that as an ideal long-term production session design. Review the database schema, environment variables and live deployment before inviting paying customers.
 
-## Current limitations
-
-The Vercel configuration now includes a serverless API entrypoint alongside the static preview. It is not a functioning production API until a PostgreSQL database and all required environment variables are configured in Vercel. Project provisioning is founder-only; customer accounts, billing, key rotation UI, rate limiting, quotas, and background campaign delivery are not implemented. Public browser keys are separate from secret server-side keys. Do not expose privileged API keys in browser code or use this prototype for production subscriber data until deployment and security work are complete.
-
-Never commit `.env`, raw API keys, database credentials, or VAPID private keys.
+Never commit `.env`, database credentials, raw API keys, Supabase service-role keys or VAPID private keys.

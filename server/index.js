@@ -24,8 +24,12 @@ const origins = (process.env.ALLOWED_ORIGINS || '').split(',').map(x => x.trim()
 app.disable('x-powered-by');
 app.use(cors({
   origin(origin, callback) {
-    if (!origin || origins.length === 0 || origins.includes(origin)) return callback(null, true);
-    return callback(new Error('Origin blocked'));
+    if (!origin || origins.includes(origin)) return callback(null, true);
+    let parsed;
+    try { parsed = new URL(origin); } catch { return callback(new Error('Origin blocked')); }
+    pool.query('SELECT 1 FROM projects WHERE website_url IS NOT NULL AND lower(trim(trailing \'/\' from website_url))=$1 LIMIT 1', [parsed.origin.toLowerCase()])
+      .then(result => callback(result.rowCount ? null : new Error('Origin blocked'), Boolean(result.rowCount)))
+      .catch(() => callback(new Error('Origin blocked')));
   },
   methods: ['GET', 'POST', 'OPTIONS'],
   allowedHeaders: ['content-type', 'authorization', 'x-engagekit-key', 'x-engagekit-admin-key', 'x-engagekit-setup-key']
