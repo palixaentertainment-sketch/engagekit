@@ -1,3 +1,39 @@
-export async function subscribeToPush({apiUrl,serviceWorkerPath='/engagekit-sw.js',publicKey,subscriberId}={}){if(!apiUrl||!publicKey)throw TypeError('apiUrl and publicKey required');if(!('serviceWorker'in navigator)||!('PushManager'in window)||!('Notification'in window))throw Error('Push unsupported');const permission=await Notification.requestPermission();if(permission!=='granted')throw Error('Permission denied');const registration=await navigator.serviceWorker.register(serviceWorkerPath);const subscription=await registration.pushManager.getSubscription()||await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:decodeKey(publicKey)});const response=await fetch(apiUrl.replace(/\/$/,'')+'/v1/push/subscribe',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({subscription,subscriberId})});if(!response.ok)throw Error('Subscribe failed ('+response.status+')');const result=await response.json();return{registration,subscription,subscriberId:result.subscriberId};}
-export async function unsubscribeFromPush({apiUrl}={}){if(!('serviceWorker'in navigator))return false;const registration=await navigator.serviceWorker.getRegistration(),subscription=await registration?.pushManager.getSubscription();if(!subscription)return false;const r=await fetch(apiUrl.replace(/\/$/,'')+'/v1/push/unsubscribe',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({endpoint:subscription.endpoint})});if(!r.ok)throw Error('Unsubscribe failed');return subscription.unsubscribe();}
-function decodeKey(k){const v=k.replace(/-/g,'+').replace(/_/g,'/'),pad=v.padEnd(v.length+((4-v.length%4)%4),'=');return Uint8Array.from(atob(pad),c=>c.charCodeAt(0));}
+export async function subscribeToPush({apiUrl,apiKey,serviceWorkerPath='/engagekit-sw.js',publicKey,subscriberId}={}) {
+  if (!apiUrl || !apiKey || !publicKey) throw TypeError('apiUrl, apiKey and publicKey required');
+  if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window))
+    throw Error('Push unsupported');
+  const permission = await Notification.requestPermission();
+  if (permission !== 'granted') throw Error('Permission denied');
+  const registration = await navigator.serviceWorker.register(serviceWorkerPath);
+  const subscription = await registration.pushManager.getSubscription() ||
+    await registration.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: decodeKey(publicKey) });
+  const response = await fetch(apiUrl.replace(/\/$/, '') + '/v1/push/subscribe', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-engagekit-key': apiKey },
+    body: JSON.stringify({ subscription, subscriberId })
+  });
+  if (!response.ok) throw Error('Subscribe failed (' + response.status + ')');
+  const result = await response.json();
+  return { registration, subscription, subscriberId: result.subscriberId };
+}
+
+export async function unsubscribeFromPush({apiUrl,apiKey}={}) {
+  if (!apiUrl || !apiKey) throw TypeError('apiUrl and apiKey required');
+  if (!('serviceWorker' in navigator)) return false;
+  const registration = await navigator.serviceWorker.getRegistration();
+  const subscription = await registration?.pushManager.getSubscription();
+  if (!subscription) return false;
+  const response = await fetch(apiUrl.replace(/\/$/, '') + '/v1/push/unsubscribe', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-engagekit-key': apiKey },
+    body: JSON.stringify({ endpoint: subscription.endpoint })
+  });
+  if (!response.ok) throw Error('Unsubscribe failed (' + response.status + ')');
+  return subscription.unsubscribe();
+}
+
+function decodeKey(key) {
+  const value = key.replace(/-/g, '+').replace(/_/g, '/');
+  const padded = value.padEnd(value.length + ((4 - value.length % 4) % 4), '=');
+  return Uint8Array.from(atob(padded), char => char.charCodeAt(0));
+}
