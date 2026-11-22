@@ -23,9 +23,10 @@
     if(path.endsWith('/events')) return {events:sampleEvents};
     if(path.endsWith('/subscribers')) return {subscribers:Array.from({length:8},(_,i)=>({id:'subscriber_'+(i+1),created_at:'2026-11-'+String(22-i).padStart(2,'0')+'T09:00:00Z',updated_at:'2026-11-22T10:00:00Z'}))};
     if(path.endsWith('/campaigns')) return {campaigns:[{id:'c1',title:'November product update',status:'sent',sent:1200,failed:12,created_at:'2026-11-20T11:00:00Z'},{id:'c2',title:'Welcome campaign',status:'sent',sent:1180,failed:4,created_at:'2026-11-15T11:00:00Z'}]};
+    if(path.endsWith('/keys') && method==='POST') return {secret:'ek_demo_generated_key_not_real'};
     if(path.endsWith('/keys')) return {keys:[{id:'k1',name:'Production browser key',key_prefix:'ek_pub_7af2',key_type:'public',created_at:'2026-11-01T10:00:00Z',revoked_at:null}]};
     if(path.endsWith('/push/send')) return {sent:1284,failed:0,total:1284};
-    if(path.endsWith('/keys') && method==='POST') return {secret:'ek_pub_demo_new_key_not_real'};
+    if(path.startsWith('/account/projects/') && !path.endsWith('/overview') && !path.endsWith('/events') && !path.endsWith('/subscribers') && !path.endsWith('/campaigns') && !path.endsWith('/keys')) return {project:state.projects.find(p=>p.id===decodeURIComponent(path.split('/')[3])) || {id:'demo-project-1',name:'Acme Website',slug:'acme-website',website_url:'https://example.com'}};
     if(method==='PATCH') return {project:{...state.project,name:JSON.parse(options.body||'{}').name||state.project.name,website_url:JSON.parse(options.body||'{}').websiteUrl||null}};
     if(method==='DELETE') {state.projects=state.projects.filter(p=>p.id!==state.project?.id);return {ok:true};}
     return {ok:true};
