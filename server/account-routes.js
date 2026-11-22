@@ -9,6 +9,16 @@ export function createAccountRouter(pool) {
   const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\\/$/, '');
   const anonKey = process.env.SUPABASE_ANON_KEY;
 
+  const authAttempts = new Map();
+  function limitAuth(req, res, next) {
+    const now = Date.now(), key = req.ip || req.socket.remoteAddress || 'unknown';
+    const entry = authAttempts.get(key);
+    if (!entry || now - entry.start > 15 * 60 * 1000) authAttempts.set(key, { start: now, count: 1 });
+    else if (++entry.count > 12) return res.status(429).json({ error: 'Too many authentication attempts. Try again in 15 minutes.' });
+    if (authAttempts.size > 5000) for (const [k,v] of authAttempts) if (now-v.start > 15*60*1000) authAttempts.delete(k);
+    next();
+  }
+
   async function authRequest(path, body) {
     if (!supabaseUrl || !anonKey) throw Object.assign(new Error('Supabase Auth is not configured.'), { status: 503 });
     const response = await fetch(supabaseUrl + '/auth/v1/' + path, {
@@ -41,7 +51,7 @@ export function createAccountRouter(pool) {
     } catch { res.status(500).json({ error: 'Project lookup failed.' }); }
   }
 
-  router.post('/auth/signup', async (req, res) => {
+  router.post('/auth/signup', limitAuth, async (req, res) => {
     const { email, password } = req.body || {};
     if (typeof email !== 'string' || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || email.length > 254 ||
         typeof password !== 'string' || password.length < 8 || password.length > 128)
@@ -50,14 +60,14 @@ export function createAccountRouter(pool) {
     catch (error) { res.status(error.status || 503).json({ error: error.message }); }
   });
 
-  router.post('/auth/signin', async (req, res) => {
+  router.post('/auth/signin', limitAuth, async (req, res) => {
     const { email, password } = req.body || {};
     if (typeof email !== 'string' || typeof password !== 'string') return res.status(400).json({ error: 'Email and password are required.' });
     try { res.json(await authRequest('token?grant_type=password', { email: email.trim(), password })); }
     catch (error) { res.status(error.status || 503).json({ error: error.message }); }
   });
 
-  router.post('/auth/recover', async (req, res) => {
+  router.post('/auth/recover', limitAuth, async (req, res) => {
     const { email } = req.body || {};
     if (typeof email !== 'string' || email.length > 254) return res.status(400).json({ error: 'Enter your account email.' });
     try { res.json(await authRequest('recover', { email: email.trim() })); }
