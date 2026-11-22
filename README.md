@@ -25,6 +25,19 @@ For a new database, apply `server/schema.sql`. To upgrade the original single-pr
 
 See `docs/SETUP.md` for endpoint and integration details.
 
+## Customer accounts (new)
+
+The customer dashboard is available at `/dashboard.html`. It supports Supabase email/password sign-up and sign-in, creating owner-scoped projects, showing generated API keys once, and viewing project subscriber/event/campaign counts.
+
+Before deploying this feature:
+
+1. Add Vercel environment variables `SUPABASE_URL` (the project URL) and `SUPABASE_ANON_KEY` (the Supabase publishable/anon key).
+2. Run `server/migrations/002_customer_accounts.sql` in the Supabase SQL Editor.
+3. Configure Supabase Auth email confirmation and your production site URL/redirect settings.
+4. Deploy the feature branch and test sign-up, sign-in, project creation, and cross-account access with two separate test users.
+
+The dashboard stores the Supabase access token in browser local storage for this prototype. Add a hardened session strategy, rate limits, email abuse protections, and key rotation/revocation controls before public production use.
+
 ## Current limitations
 
 The Vercel configuration now includes a serverless API entrypoint alongside the static preview. It is not a functioning production API until a PostgreSQL database and all required environment variables are configured in Vercel. Project provisioning is founder-only; customer accounts, billing, key rotation UI, rate limiting, quotas, and background campaign delivery are not implemented. Public browser keys are separate from secret server-side keys. Do not expose privileged API keys in browser code or use this prototype for production subscriber data until deployment and security work are complete.
