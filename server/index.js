@@ -27,7 +27,7 @@ app.use(cors({
     return callback(new Error('Origin blocked'));
   },
   methods: ['GET', 'POST', 'OPTIONS'],
-  allowedHeaders: ['content-type', 'x-engagekit-key', 'x-engagekit-admin-key']
+  allowedHeaders: ['content-type', 'x-engagekit-key', 'x-engagekit-admin-key', 'x-engagekit-setup-key']
 }));
 app.use(express.json({ limit: '256kb' }));
 
@@ -71,7 +71,7 @@ function validSubscription(s) {
     typeof s.keys.p256dh === 'string' && typeof s.keys.auth === 'string';
 }
 function validPath(value) {
-  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\\\');
+  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\');
 }
 
 
