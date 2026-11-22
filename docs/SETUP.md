@@ -1,0 +1,5 @@
+## Local Setup
+Requires Node 20+ and PostgreSQL. Run npm install; create a PostgreSQL DB and apply schema with psql "$DATABASE_URL" -f server/schema.sql. Copy .env.example to .env; set DB URL, strong admin key and VAPID credentials. Generate VAPID values using npm run vapid (private key must never be committed). Start: npm start. Dashboard: serve dashboard/ folder via static hosting, connect with API URL/admin key.
+Website integration: deploy public/engagekit-sw.js to site root; retrieve GET /v1/push/public-key; import subscribeToPush from src/web-push.js and call from a visitor click. HTTPS required except localhost.
+Routes: GET /health, GET /v1/push/public-key, POST /v1/push/subscribe, POST /v1/push/unsubscribe, POST /v1/events; admin routes use x-engagekit-admin-key: overview, subscribers, push/send.
+Security status: prototype only. Public event ingestion has no authentication/rate limit. Subscription routes need abuse controls, strict origin checks, quotas. Add proper user authentication, project isolation, key rotation, send queue, retry/delivery tracking and audit logs before production.
