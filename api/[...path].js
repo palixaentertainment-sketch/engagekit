@@ -1,22 +1,28 @@
 import { app } from '../server/index.js';
 
-// Vercel's single /api catch-all handles both health checks and versioned API
-// requests. The rewrite maps public /v1/* to /api/*, so restore the Express
-// mount prefix here. Keep /health unprefixed for the health endpoint.
 export default function handler(req, res) {
-  const url = req.url || '/';
-  const queryIndex = url.indexOf('?');
-  const pathname = queryIndex === -1 ? url : url.slice(0, queryIndex);
-  const query = queryIndex === -1 ? '' : url.slice(queryIndex);
+  const originalUrl = req.url || '/';
+  const queryIndex = originalUrl.indexOf('?');
+  const pathname = queryIndex === -1 ? originalUrl : originalUrl.slice(0, queryIndex);
+  const query = queryIndex === -1 ? '' : originalUrl.slice(queryIndex);
 
-  if (pathname === '/api') {
-    req.url = '/' + query;
-  } else if (pathname.startsWith('/api/')) {
-    const route = pathname.slice(4);
-    req.url = route === '/health' || route.startsWith('/health/')
-      ? route + query
-      : '/v1' + route + query;
+  // Vercel catch-all may expose either the rewritten /api path or the original
+  // /v1 path depending on routing configuration. Normalize both forms.
+  let route = pathname;
+  if (route === '/api') route = '/';
+  else if (route.startsWith('/api/')) route = route.slice(4);
+  if (route !== '/health' && !route.startsWith('/health/')) {
+    if (!route.startsWith('/v1/')) route = '/v1' + (route.startsWith('/') ? route : '/' + route);
   }
 
+  req.url = route + query;
+  const requestId = req.headers['x-vercel-id'] || req.headers['x-request-id'] || 'unknown';
+  const started = Date.now();
+  res.on('finish', () => {
+    console.log('[vercel-request]', {
+      requestId, method: req.method, path: route,
+      status: res.statusCode, durationMs: Date.now() - started
+    });
+  });
   return app(req, res);
 }
