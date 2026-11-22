@@ -2,11 +2,11 @@ import express from 'express';
 import crypto from 'node:crypto';
 
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
-const safePath = value => typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\\\');
+const safePath = value => typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\');
 
 export function createAccountRouter(pool) {
   const router = express.Router();
-  const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\\/$/, '');
+  const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
   const anonKey = process.env.SUPABASE_ANON_KEY;
 
   const authAttempts = new Map();
