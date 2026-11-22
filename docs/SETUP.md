@@ -27,3 +27,8 @@ Deploy `public/engagekit-sw.js` to the website root. Retrieve `GET /v1/push/publ
 - `/v1/admin/*` (admin key plus project API key)
 
 Security status: early prototype, not production-ready. The hosted Vercel URL is a static preview; the API is not deployed or connected to a production database. Rate limits, customer authentication, project key rotation/revocation UI, quotas, background delivery, and a security review are still required.
+
+
+## Deploying the API on Vercel
+
+The repository includes a catch-all Vercel Node function at `api/[...path].js`. Vercel rewrites `/health` and `/v1/*` requests to that function while continuing to serve the static site from `public/`. Add the environment variables listed in `.env.example` to the Vercel project. Use a managed PostgreSQL database and run the appropriate SQL schema or migrations against it before testing the API. Set `ALLOWED_ORIGINS` to a comma-separated list of exact website origins. Set `PGSSL=true` if your database provider requires TLS. The API will not work until `DATABASE_URL`, VAPID keys, admin key and setup key are configured in Vercel.
