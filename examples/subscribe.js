@@ -1,7 +1,7 @@
 import { subscribeToPush } from '../src/web-push.js';
 
 const apiUrl = 'https://YOUR-API.example';
-const apiKey = 'YOUR_PROJECT_API_KEY';
+const apiKey = 'YOUR_PUBLIC_PROJECT_KEY';
 const publicKey = 'YOUR_VAPID_PUBLIC_KEY';
 
 document.querySelector('#subscribe').onclick = async () => {
