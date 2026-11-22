@@ -1,199 +1,48 @@
-import express from 'express';
-import crypto from 'node:crypto';
-
-const hash = value => crypto.createHash('sha256').update(value).digest('hex');
-const safePath = value => typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\');
-
-export function createAccountRouter(pool) {
-  const router = express.Router();
-  const supabaseUrl = (process.env.SUPABASE_URL || '').replace(/\/$/, '');
-  const anonKey = process.env.SUPABASE_ANON_KEY;
-
-  const authAttempts = new Map();
-  function limitAuth(req, res, next) {
-    const now = Date.now(), key = req.ip || req.socket.remoteAddress || 'unknown';
-    const entry = authAttempts.get(key);
-    if (!entry || now - entry.start > 15 * 60 * 1000) authAttempts.set(key, { start: now, count: 1 });
-    else if (++entry.count > 12) return res.status(429).json({ error: 'Too many authentication attempts. Try again in 15 minutes.' });
-    if (authAttempts.size > 5000) for (const [k,v] of authAttempts) if (now-v.start > 15*60*1000) authAttempts.delete(k);
-    next();
-  }
-
-  async function authRequest(path, body) {
-    if (!supabaseUrl || !anonKey) throw Object.assign(new Error('Supabase Auth is not configured.'), { status: 503 });
-    const response = await fetch(supabaseUrl + '/auth/v1/' + path, {
-      method: 'POST', headers: { 'content-type': 'application/json', apikey: anonKey },
-      body: JSON.stringify(body)
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw Object.assign(new Error(data.msg || data.message || data.error_description || 'Authentication failed.'), { status: response.status });
+(() => {
+  const $ = (id) => document.getElementById(id);
+  const API = '/v1';
+  const state = { token: localStorage.getItem('ek_access_token') || '', mode: 'signin', project: null, projects: [], subscribers: [], events: [] };
+  const esc = (v='') => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const date = v => v ? new Date(v).toLocaleString() : '—';
+  const show = (el, yes=true) => el?.classList.toggle('hidden', !yes);
+  const message = (id, text, error=false) => { const el=$(id); if(el){el.textContent=text;el.classList.toggle('error',error);} };
+  async function request(path, options={}) {
+    const headers = {'content-type':'application/json', ...(options.headers||{})};
+    if(state.token) headers.authorization='Bearer '+state.token;
+    const response=await fetch(API+path,{...options,headers});
+    const data=await response.json().catch(()=>({}));
+    if(!response.ok) throw new Error(data.error||data.message||'Something went wrong.');
     return data;
   }
-
-  async function requireUser(req, res, next) {
-    const match = /^Bearer\\s+(.+)$/i.exec(req.get('authorization') || '');
-    if (!match || match[1].length > 8192) return res.status(401).json({ error: 'Sign in required.' });
-    if (!supabaseUrl || !anonKey) return res.status(503).json({ error: 'Authentication is not configured.' });
-    try {
-      const response = await fetch(supabaseUrl + '/auth/v1/user', { headers: { apikey: anonKey, authorization: 'Bearer ' + match[1] } });
-      if (!response.ok) return res.status(401).json({ error: 'Session expired. Please sign in again.' });
-      req.user = await response.json();
-      if (!req.user?.id) return res.status(401).json({ error: 'Invalid session.' });
-      next();
-    } catch { res.status(503).json({ error: 'Authentication service unavailable.' }); }
-  }
-
-  async function ownedProject(req, res, next) {
-    try {
-      const result = await pool.query('SELECT id,name,slug,website_url,created_at FROM projects WHERE id=$1 AND owner_id=$2', [req.params.projectId, req.user.id]);
-      if (!result.rowCount) return res.status(404).json({ error: 'Project not found.' });
-      req.project = result.rows[0]; next();
-    } catch { res.status(500).json({ error: 'Project lookup failed.' }); }
-  }
-
-  router.post('/auth/signup', limitAuth, async (req, res) => {
-    const { email, password } = req.body || {};
-    if (typeof email !== 'string' || !/^[^\\s@]+@[^\\s@]+\\.[^\\s@]+$/.test(email) || email.length > 254 ||
-        typeof password !== 'string' || password.length < 8 || password.length > 128)
-      return res.status(400).json({ error: 'Enter a valid email and a password of at least 8 characters.' });
-    try { res.status(201).json(await authRequest('signup', { email: email.trim(), password })); }
-    catch (error) { res.status(error.status || 503).json({ error: error.message }); }
-  });
-
-  router.post('/auth/signin', limitAuth, async (req, res) => {
-    const { email, password } = req.body || {};
-    if (typeof email !== 'string' || typeof password !== 'string') return res.status(400).json({ error: 'Email and password are required.' });
-    try { res.json(await authRequest('token?grant_type=password', { email: email.trim(), password })); }
-    catch (error) { res.status(error.status || 503).json({ error: error.message }); }
-  });
-
-  router.post('/auth/recover', limitAuth, async (req, res) => {
-    const { email } = req.body || {};
-    if (typeof email !== 'string' || email.length > 254) return res.status(400).json({ error: 'Enter your account email.' });
-    try { res.json(await authRequest('recover', { email: email.trim() })); }
-    catch (error) { res.status(error.status || 503).json({ error: error.message }); }
-  });
-
-  router.get('/account/me', requireUser, (req, res) => res.json({ user: { id: req.user.id, email: req.user.email } }));
-
-  router.get('/account/projects', requireUser, async (req, res) => {
-    try {
-      const result = await pool.query(`SELECT p.id,p.name,p.slug,p.website_url,p.created_at,
-        (SELECT COUNT(*)::int FROM push_subscribers s WHERE s.project_id=p.id) AS subscribers,
-        (SELECT COUNT(*)::int FROM events e WHERE e.project_id=p.id) AS events,
-        (SELECT COUNT(*)::int FROM campaigns c WHERE c.project_id=p.id) AS campaigns
-        FROM projects p WHERE p.owner_id=$1 ORDER BY p.created_at DESC`, [req.user.id]);
-      res.json({ projects: result.rows });
-    } catch { res.status(500).json({ error: 'Could not load projects. Check the account migration.' }); }
-  });
-
-  router.post('/account/projects', requireUser, async (req, res) => {
-    const { name, slug, websiteUrl } = req.body || {};
-    if (typeof name !== 'string' || name.trim().length < 2 || name.trim().length > 100)
-      return res.status(400).json({ error: 'Project name must be 2–100 characters.' });
-    if (typeof slug !== 'string' || !/^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/.test(slug))
-      return res.status(400).json({ error: 'Use a lowercase slug with letters, numbers and hyphens.' });
-    let website = null;
-    if (websiteUrl) { try { const u = new URL(websiteUrl); if (!['http:','https:'].includes(u.protocol) || u.username || u.password) throw Error(); website = u.toString(); } catch { return res.status(400).json({ error: 'Enter a valid website URL.' }); } }
-    const publicKey = 'ek_pub_' + crypto.randomBytes(32).toString('base64url');
-    const secretKey = 'ek_sec_' + crypto.randomBytes(32).toString('base64url');
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      const p = await client.query('INSERT INTO projects(owner_id,name,slug,website_url) VALUES($1,$2,$3,$4) RETURNING id,name,slug,website_url,created_at', [req.user.id,name.trim(),slug,website]);
-      await client.query('INSERT INTO api_keys(project_id,name,key_prefix,key_hash,key_type) VALUES($1,$2,$3,$4,$5),($1,$6,$7,$8,$9)',
-        [p.rows[0].id,'Public browser key',publicKey.slice(0,16),hash(publicKey),'public','Default secret key',secretKey.slice(0,16),hash(secretKey),'secret']);
-      await client.query('COMMIT');
-      res.status(201).json({ project:p.rows[0], publicKey, secretKey, warning:'Copy the secret key now. It is shown only once.' });
-    } catch (error) {
-      await client.query('ROLLBACK');
-      if (error.code === '23505') return res.status(409).json({ error: 'That project slug is already in use.' });
-      res.status(500).json({ error: 'Project creation failed.' });
-    } finally { client.release(); }
-  });
-
-  router.get('/account/projects/:projectId', requireUser, ownedProject, (req,res) => res.json({project:req.project}));
-
-  router.patch('/account/projects/:projectId', requireUser, ownedProject, async (req,res) => {
-    const {name,websiteUrl}=req.body||{};
-    if(typeof name!=='string'||name.trim().length<2||name.trim().length>100) return res.status(400).json({error:'Project name must be 2–100 characters.'});
-    let website=null;
-    if(websiteUrl){try{const u=new URL(websiteUrl);if(!['http:','https:'].includes(u.protocol)||u.username||u.password)throw Error();website=u.toString();}catch{return res.status(400).json({error:'Enter a valid website URL.'});}}
-    try{const r=await pool.query('UPDATE projects SET name=$1,website_url=$2,updated_at=NOW() WHERE id=$3 AND owner_id=$4 RETURNING id,name,slug,website_url,created_at',[name.trim(),website,req.project.id,req.user.id]);res.json({project:r.rows[0]});}
-    catch{res.status(500).json({error:'Project update failed.'});}
-  });
-
-  router.delete('/account/projects/:projectId', requireUser, ownedProject, async (req,res) => {
-    try{await pool.query('DELETE FROM projects WHERE id=$1 AND owner_id=$2',[req.project.id,req.user.id]);res.json({ok:true});}
-    catch{res.status(500).json({error:'Project could not be deleted.'});}
-  });
-
-  router.get('/account/projects/:projectId/keys', requireUser, ownedProject, async (req,res) => {
-    try{const r=await pool.query('SELECT id,name,key_prefix,key_type,created_at,last_used_at,revoked_at FROM api_keys WHERE project_id=$1 ORDER BY created_at DESC',[req.project.id]);res.json({keys:r.rows});}
-    catch{res.status(500).json({error:'Could not load API keys.'});}
-  });
-
-  router.post('/account/projects/:projectId/keys', requireUser, ownedProject, async (req,res) => {
-    const type=req.body?.keyType==='public'?'public':'secret';
-    const name=typeof req.body?.name==='string'?req.body.name.trim():'';
-    if(!name||name.length>80)return res.status(400).json({error:'Key name must be 1–80 characters.'});
-    const raw=(type==='public'?'ek_pub_':'ek_sec_')+crypto.randomBytes(32).toString('base64url');
-    try{const r=await pool.query('INSERT INTO api_keys(project_id,name,key_prefix,key_hash,key_type) VALUES($1,$2,$3,$4,$5) RETURNING id,name,key_prefix,key_type,created_at',[req.project.id,name,raw.slice(0,16),hash(raw),type]);res.status(201).json({key:r.rows[0],secret:raw});}
-    catch{res.status(500).json({error:'Key could not be created.'});}
-  });
-
-  router.post('/account/projects/:projectId/keys/:keyId/revoke', requireUser, ownedProject, async (req,res) => {
-    try{const r=await pool.query('UPDATE api_keys SET revoked_at=NOW() WHERE id=$1 AND project_id=$2 AND revoked_at IS NULL RETURNING id',[req.params.keyId,req.project.id]);if(!r.rowCount)return res.status(404).json({error:'Active key not found.'});res.json({ok:true});}
-    catch{res.status(500).json({error:'Key could not be revoked.'});}
-  });
-
-  router.get('/account/projects/:projectId/overview', requireUser, ownedProject, async (req,res) => {
-    try{
-      const [s,e,c,recent]=await Promise.all([
-        pool.query('SELECT COUNT(*)::int n FROM push_subscribers WHERE project_id=$1',[req.project.id]),
-        pool.query('SELECT COUNT(*)::int n FROM events WHERE project_id=$1',[req.project.id]),
-        pool.query('SELECT COUNT(*)::int n FROM campaigns WHERE project_id=$1',[req.project.id]),
-        pool.query("SELECT COUNT(*)::int n FROM events WHERE project_id=$1 AND timestamp >= NOW()-INTERVAL '7 days'",[req.project.id])
-      ]);
-      res.json({subscribers:s.rows[0].n,events:e.rows[0].n,campaigns:c.rows[0].n,events7d:recent.rows[0].n});
-    }catch{res.status(500).json({error:'Could not load project overview.'});}
-  });
-
-  router.get('/account/projects/:projectId/subscribers', requireUser, ownedProject, async (req,res) => {
-    try{const r=await pool.query('SELECT id,created_at,updated_at FROM push_subscribers WHERE project_id=$1 ORDER BY created_at DESC LIMIT 500',[req.project.id]);res.json({subscribers:r.rows});}
-    catch{res.status(500).json({error:'Could not load subscribers.'});}
-  });
-  router.get('/account/projects/:projectId/events', requireUser, ownedProject, async (req,res) => {
-    try{const r=await pool.query('SELECT id,name,user_id,properties,timestamp FROM events WHERE project_id=$1 ORDER BY timestamp DESC LIMIT 200',[req.project.id]);res.json({events:r.rows});}
-    catch{res.status(500).json({error:'Could not load events.'});}
-  });
-  router.get('/account/projects/:projectId/campaigns', requireUser, ownedProject, async (req,res) => {
-    try{const r=await pool.query('SELECT id,title,body,destination_path,status,created_at,sent_at,(SELECT COUNT(*)::int FROM campaign_results cr WHERE cr.campaign_id=c.id AND cr.status=\'sent\') sent,(SELECT COUNT(*)::int FROM campaign_results cr WHERE cr.campaign_id=c.id AND cr.status IN (\'failed\',\'expired\')) failed FROM campaigns c WHERE project_id=$1 ORDER BY created_at DESC LIMIT 100',[req.project.id]);res.json({campaigns:r.rows});}
-    catch{res.status(500).json({error:'Could not load campaigns.'});}
-  });
-
-  router.post('/account/projects/:projectId/push/send', requireUser, ownedProject, async (req,res) => {
-    const pub=process.env.VAPID_PUBLIC_KEY,priv=process.env.VAPID_PRIVATE_KEY;
-    if(!pub||!priv)return res.status(503).json({error:'Push delivery is not configured yet.'});
-    const {title,body,url='/'}=req.body||{};
-    if(typeof title!=='string'||!title.trim()||title.length>120||typeof body!=='string'||!body.trim()||body.length>2000)return res.status(400).json({error:'Add a title and message (maximum 120 and 2,000 characters).'});
-    if(!safePath(url))return res.status(400).json({error:'Destination must be a safe relative path.'});
-    const client=await pool.connect();let campaignId;
-    try{
-      await client.query('BEGIN');
-      const created=await client.query("INSERT INTO campaigns(project_id,title,body,destination_path,status) VALUES($1,$2,$3,$4,'sending') RETURNING id",[req.project.id,title.trim(),body.trim(),url]);campaignId=created.rows[0].id;
-      const subscribers=await client.query('SELECT id,subscription FROM push_subscribers WHERE project_id=$1',[req.project.id]);
-      const webpush=(await import('web-push')).default;webpush.setVapidDetails(process.env.VAPID_SUBJECT||'mailto:support@engagekit.app',pub,priv);
-      let sent=0,failed=0;
-      for(const item of subscribers.rows){
-        try{await webpush.sendNotification(item.subscription,JSON.stringify({title:title.trim(),body:body.trim(),url}),{TTL:3600});sent++;await client.query("INSERT INTO campaign_results(campaign_id,subscriber_id,status) VALUES($1,$2,'sent')",[campaignId,item.id]);}
-        catch(error){failed++;const expired=[404,410].includes(error.statusCode);await client.query('INSERT INTO campaign_results(campaign_id,subscriber_id,status,response_code,error_message) VALUES($1,$2,$3,$4,$5)',[campaignId,item.id,expired?'expired':'failed',error.statusCode||null,String(error.message||'Delivery failed').slice(0,500)]);if(expired)await client.query('DELETE FROM push_subscribers WHERE project_id=$1 AND id=$2',[req.project.id,item.id]);}
-      }
-      await client.query("UPDATE campaigns SET status=$2,sent_at=NOW() WHERE id=$1",[campaignId,failed&&sent===0?'failed':'sent']);await client.query('COMMIT');
-      res.json({campaignId,total:subscribers.rowCount,sent,failed});
-    }catch{await client.query('ROLLBACK').catch(()=>{});res.status(500).json({error:'Campaign could not be sent.'});}
-    finally{client.release();}
-  });
-
-  return router;
-}
+  function authView(){show($('auth-view'),true);show($('app-view'),false);$('user-label').textContent='';show($('signout'),false);}
+  function appView(user){show($('auth-view'),false);show($('app-view'),true);$('user-label').textContent=user?.email||'';show($('signout'),true);loadProjects();}
+  function setMode(mode){state.mode=mode;const signup=mode==='signup';$('auth-title').textContent=signup?'Create your account.':'Welcome back.';$('auth-copy').textContent=signup?'Start managing your website engagement.':'Sign in to manage your websites and notifications.';$('auth-submit').textContent=signup?'Create account':'Sign in';$('password').autocomplete=signup?'new-password':'current-password';$('switch-copy').textContent=signup?'Already have an account?':'New to EngageKit?';$('switch-mode').textContent=signup?'Sign in':'Create an account';show($('forgot'),!signup);message('auth-message','');}
+  $('switch-mode').addEventListener('click',()=>setMode(state.mode==='signin'?'signup':'signin'));
+  $('auth-form').addEventListener('submit',async e=>{e.preventDefault();const btn=$('auth-submit');btn.disabled=true;message('auth-message','Please wait…');try{const data=await request('/auth/'+(state.mode==='signup'?'signup':'signin'),{method:'POST',body:JSON.stringify({email:$('email').value.trim(),password:$('password').value})});if(state.mode==='signup'&&!data.access_token){message('auth-message','Account created. Check your email to confirm, then sign in.');setMode('signin');return;}state.token=data.access_token;localStorage.setItem('ek_access_token',state.token);appView(data.user);}catch(err){message('auth-message',err.message,true);}finally{btn.disabled=false;}});
+  $('forgot').addEventListener('click',async()=>{const email=$('email').value.trim();if(!email){message('auth-message','Enter your email address first.',true);return;}try{await request('/auth/recover',{method:'POST',body:JSON.stringify({email})});message('auth-message','If the account exists, a recovery email has been sent.');}catch(err){message('auth-message',err.message,true);}});
+  $('signout').addEventListener('click',()=>{state.token='';localStorage.removeItem('ek_access_token');state.project=null;authView();});
+  $('new-project').addEventListener('click',()=>{show($('project-form'));$('project-name').focus();});
+  $('cancel-project').addEventListener('click',()=>show($('project-form'),false));
+  $('project-name').addEventListener('input',()=>{if(!$('project-slug').dataset.edited)$('project-slug').value=$('project-name').value.toLowerCase().trim().replace(/[^a-z0-9]+/g,'-').replace(/^-|-$/g,'').slice(0,50);});
+  $('project-slug').addEventListener('input',()=>{$('project-slug').dataset.edited='1';});
+  async function loadProjects(){try{const data=await request('/account/projects');state.projects=data.projects||[];renderProjects();}catch(err){if(/sign in|session expired/i.test(err.message)){state.token='';localStorage.removeItem('ek_access_token');authView();}else{$('project-list').innerHTML='<div class="card error">'+esc(err.message)+'</div>';}}}
+  function renderProjects(){const root=$('project-list');$('empty-state').classList.toggle('hidden',state.projects.length>0);root.innerHTML=state.projects.map(p=>'<article class="project"><div class="project-card-head"><div><h3>'+esc(p.name)+'</h3><small>'+esc(p.website_url||p.slug)+'</small></div><span class="arrow">↗</span></div><div class="stats"><div><b>'+p.subscribers+'</b><small>Subscribers</small></div><div><b>'+p.events+'</b><small>Events</small></div><div><b>'+p.campaigns+'</b><small>Campaigns</small></div></div><button class="quiet open-project" data-open="'+esc(p.id)+'">Open project →</button></article>').join('');root.querySelectorAll('[data-open]').forEach(b=>b.addEventListener('click',()=>openProject(b.dataset.open)));}
+  $('create-form').addEventListener('submit',async e=>{e.preventDefault();const btn=e.submitter;btn.disabled=true;message('project-message','Creating project…');try{const d=await request('/account/projects',{method:'POST',body:JSON.stringify({name:$('project-name').value.trim(),slug:$('project-slug').value.trim(),websiteUrl:$('website-url').value.trim()||null})});show($('project-form'),false);$('create-form').reset();$('project-slug').dataset.edited='';$('public-key').textContent=d.publicKey;$('secret-key').textContent=d.secretKey;show($('key-notice'));await loadProjects();}catch(err){message('project-message',err.message,true);}finally{btn.disabled=false;}});
+  $('dismiss-keys').addEventListener('click',()=>show($('key-notice'),false));
+  async function openProject(id){try{const p=state.projects.find(x=>x.id===id);const d=await request('/account/projects/'+encodeURIComponent(id));state.project=d.project;show($('workspace-view'),false);show($('project-view'),true);$('detail-name').textContent=state.project.name;$('detail-url').textContent=state.project.website_url||state.project.slug;$('detail-url').href=state.project.website_url||'#';$('settings-name').value=state.project.name;$('settings-url').value=state.project.website_url||'';await loadTab('overview');}catch(err){alert(err.message);}}
+  $('back-projects').addEventListener('click',()=>{state.project=null;show($('project-view'),false);show($('workspace-view'),true);loadProjects();});
+  $('refresh-project').addEventListener('click',()=>loadTab(document.querySelector('.tabs button.active')?.dataset.tab||'overview'));
+  document.querySelectorAll('.tabs [data-tab]').forEach(b=>b.addEventListener('click',()=>loadTab(b.dataset.tab)));
+  document.querySelectorAll('[data-goto]').forEach(b=>b.addEventListener('click',()=>loadTab(b.dataset.goto)));
+  async function loadTab(tab){if(!state.project)return;document.querySelectorAll('.tabs [data-tab]').forEach(b=>b.classList.toggle('active',b.dataset.tab===tab));document.querySelectorAll('.tab-panel').forEach(p=>show(p,p.id==='tab-'+tab));const id=encodeURIComponent(state.project.id);try{if(tab==='overview'){const [o,e]=await Promise.all([request('/account/projects/'+id+'/overview'),request('/account/projects/'+id+'/events')]);state.events=e.events||[];$('metrics').innerHTML=[['Subscribers',o.subscribers],['Events',o.events],['Campaigns',o.campaigns],['Events · 7 days',o.events7d]].map(x=>'<div class="metric"><small>'+x[0]+'</small><strong>'+x[1]+'</strong></div>').join('');$('recent-events').innerHTML=table(['Event','User','Time'],state.events.slice(0,8).map(x=>[x.name,x.user_id||'—',date(x.timestamp)]));}else if(tab==='subscribers'){const d=await request('/account/projects/'+id+'/subscribers');state.subscribers=d.subscribers||[];$('subscriber-table').innerHTML=table(['Subscriber ID','Added','Updated'],state.subscribers.map(x=>[x.id,date(x.created_at),date(x.updated_at)]));}else if(tab==='events'){const d=await request('/account/projects/'+id+'/events');state.events=d.events||[];$('event-table').innerHTML=table(['Event','User','Time','Properties'],state.events.map(x=>[x.name,x.user_id||'—',date(x.timestamp),JSON.stringify(x.properties||{})]));}else if(tab==='campaigns'){const d=await request('/account/projects/'+id+'/campaigns');$('campaign-table').innerHTML=table(['Title','Status','Sent','Failed','Created'],(d.campaigns||[]).map(x=>[x.title,x.status,x.sent,x.failed,date(x.created_at)]));}else if(tab==='integration'){await loadKeys();$('integration-content').innerHTML='<p class="muted">Your public browser key is listed below. Keep secret keys on your server only. Add the EngageKit service worker at <code>/engagekit-sw.js</code> on your website and configure your integration to register it.</p>';}}catch(err){const target=$('tab-'+tab);if(target){let box=target.querySelector('.load-error');if(!box){box=document.createElement('p');box.className='message load-error error';target.prepend(box);}box.textContent=err.message;}}}
+  function table(headers,rows){if(!rows.length)return '<div class="empty">Nothing here yet.</div>';return '<table><thead><tr>'+headers.map(h=>'<th>'+esc(h)+'</th>').join('')+'</tr></thead><tbody>'+rows.map(r=>'<tr>'+r.map(v=>'<td>'+esc(v)+'</td>').join('')+'</tr>').join('')+'</tbody></table>';}
+  async function loadKeys(){const d=await request('/account/projects/'+encodeURIComponent(state.project.id)+'/keys');$('key-table').innerHTML=table(['Name','Prefix','Type','Created','Action'],(d.keys||[]).map(k=>[k.name,k.key_prefix,k.key_type,date(k.created_at),k.revoked_at?'Revoked':'Active']));}
+  $('send-form').addEventListener('submit',async e=>{e.preventDefault();const b=$('send-button');b.disabled=true;message('send-message','Sending…');try{const d=await request('/account/projects/'+encodeURIComponent(state.project.id)+'/push/send',{method:'POST',body:JSON.stringify({title:$('push-title').value,body:$('push-body').value,url:$('push-url').value})});message('send-message','Completed: '+d.sent+' sent, '+d.failed+' failed, from '+d.total+' subscribers.');}catch(err){message('send-message',err.message,true);}finally{b.disabled=false;}});
+  $('key-form').addEventListener('submit',async e=>{e.preventDefault();try{const d=await request('/account/projects/'+encodeURIComponent(state.project.id)+'/keys',{method:'POST',body:JSON.stringify({name:$('key-name').value,keyType:$('key-type').value})});$('new-key').innerHTML='<strong>Copy this key now. It will not be shown again.</strong><code>'+esc(d.secret)+'</code>';$('new-key').classList.remove('hidden');$('key-name').value='';await loadKeys();}catch(err){$('new-key').textContent=err.message;$('new-key').classList.remove('hidden');}});
+  $('settings-form').addEventListener('submit',async e=>{e.preventDefault();try{const d=await request('/account/projects/'+encodeURIComponent(state.project.id),{method:'PATCH',body:JSON.stringify({name:$('settings-name').value,websiteUrl:$('settings-url').value||null})});state.project=d.project;$('detail-name').textContent=d.project.name;message('settings-message','Changes saved.');}catch(err){message('settings-message',err.message,true);}});
+  $('delete-project').addEventListener('click',async()=>{if(!confirm('Permanently delete this project and all its data? This cannot be undone.'))return;try{await request('/account/projects/'+encodeURIComponent(state.project.id),{method:'DELETE'});state.project=null;show($('project-view'),false);show($('workspace-view'),true);await loadProjects();}catch(err){alert(err.message);}});
+  function download(name,rows){const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download=name;a.click();URL.revokeObjectURL(a.href);}
+  $('download-subs').addEventListener('click',()=>download('engagekit-subscribers.csv',[['id','created_at','updated_at'],...state.subscribers.map(x=>[x.id,x.created_at,x.updated_at])]));$('download-events').addEventListener('click',()=>download('engagekit-events.csv',[['id','name','user_id','timestamp','properties'],...state.events.map(x=>[x.id,x.name,x.user_id,x.timestamp,JSON.stringify(x.properties)])]));
+  setMode('signin');
+  if(state.token)request('/account/me').then(d=>appView(d.user)).catch(()=>{state.token='';localStorage.removeItem('ek_access_token');authView();});else authView();
+})();
