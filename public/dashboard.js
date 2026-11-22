@@ -17,7 +17,17 @@
   function authView(){show($('auth-view'),true);show($('app-view'),false);$('user-label').textContent='';show($('signout'),false);}
   function appView(user){show($('auth-view'),false);show($('app-view'),true);$('user-label').textContent=user?.email||'';show($('signout'),true);loadProjects();}
   function setMode(mode){state.mode=mode;const signup=mode==='signup';$('auth-title').textContent=signup?'Create your account.':'Welcome back.';$('auth-copy').textContent=signup?'Start managing your website engagement.':'Sign in to manage your websites and notifications.';$('auth-submit').textContent=signup?'Create account':'Sign in';$('password').autocomplete=signup?'new-password':'current-password';$('switch-copy').textContent=signup?'Already have an account?':'New to EngageKit?';$('switch-mode').textContent=signup?'Sign in':'Create an account';show($('forgot'),!signup);message('auth-message','');}
-  $('switch-mode').addEventListener('click',()=>setMode(state.mode==='signin'?'signup':'signin'));
+  $('google-signin').addEventListener('click',()=>{window.location.href='/v1/auth/google';});
+  function acceptOAuthCallback(){
+    if(!window.location.hash) return false;
+    const params=new URLSearchParams(window.location.hash.slice(1));
+    const token=params.get('access_token');
+    const error=params.get('error_description')||params.get('error');
+    if(error){history.replaceState(null,'',location.pathname+location.search);message('auth-message',decodeURIComponent(error.replace(/\\+/g,' ')),true);return true;}
+    if(token){state.token=token;localStorage.setItem('ek_access_token',token);history.replaceState(null,'',location.pathname+location.search);request('/account/me').then(d=>appView(d.user)).catch(err=>{state.token='';localStorage.removeItem('ek_access_token');authView();message('auth-message',err.message,true);});return true;}
+    return false;
+  }
+  $('switch-mode').addEventListener('click',()=>setMode(state.mode==='signup'?'signin':'signup'));
   $('auth-form').addEventListener('submit',async e=>{e.preventDefault();const btn=$('auth-submit');btn.disabled=true;message('auth-message','Please wait…');try{const data=await request('/auth/'+(state.mode==='signup'?'signup':'signin'),{method:'POST',body:JSON.stringify({email:$('email').value.trim(),password:$('password').value})});if(state.mode==='signup'&&!data.access_token){message('auth-message','Account created. Check your email to confirm, then sign in.');setMode('signin');return;}state.token=data.access_token;localStorage.setItem('ek_access_token',state.token);appView(data.user);}catch(err){message('auth-message',err.message,true);}finally{btn.disabled=false;}});
   $('forgot').addEventListener('click',async()=>{const email=$('email').value.trim();if(!email){message('auth-message','Enter your email address first.',true);return;}try{await request('/auth/recover',{method:'POST',body:JSON.stringify({email})});message('auth-message','If the account exists, a recovery email has been sent.');}catch(err){message('auth-message',err.message,true);}});
   $('signout').addEventListener('click',()=>{state.token='';localStorage.removeItem('ek_access_token');state.project=null;authView();});
@@ -44,5 +54,5 @@
   function download(name,rows){const csv=rows.map(r=>r.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(',')).join('\n');const a=document.createElement('a');a.href=URL.createObjectURL(new Blob([csv],{type:'text/csv'}));a.download=name;a.click();URL.revokeObjectURL(a.href);}
   $('download-subs').addEventListener('click',()=>download('engagekit-subscribers.csv',[['id','created_at','updated_at'],...state.subscribers.map(x=>[x.id,x.created_at,x.updated_at])]));$('download-events').addEventListener('click',()=>download('engagekit-events.csv',[['id','name','user_id','timestamp','properties'],...state.events.map(x=>[x.id,x.name,x.user_id,x.timestamp,JSON.stringify(x.properties)])]));
   setMode('signin');
-  if(state.token)request('/account/me').then(d=>appView(d.user)).catch(()=>{state.token='';localStorage.removeItem('ek_access_token');authView();});else authView();
+  if(!acceptOAuthCallback() && state.token)request('/account/me').then(d=>appView(d.user)).catch(()=>{state.token='';localStorage.removeItem('ek_access_token');authView();});else if(!window.location.hash) authView();
 })();
