@@ -292,6 +292,12 @@ app.post('/v1/admin/push/send', requireProjectAdmin, async (req, res) => {
   } finally { client.release(); }
 });
 
+app.use((req, res) => {
+  const requestId = req.headers['x-vercel-id'] || req.headers['x-request-id'] || null;
+  console.warn('[route-not-found]', { method: req.method, path: req.path, requestId });
+  res.status(404).json({ error: 'Route not found', method: req.method, path: req.path, requestId });
+});
+
 app.use((error, _req, res, _next) => {
   if (error.message === 'Origin blocked') return res.status(403).json({ error: 'Origin blocked' });
   res.status(400).json({ error: 'Bad request' });
