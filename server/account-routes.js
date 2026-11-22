@@ -20,13 +20,47 @@ export function createAccountRouter(pool) {
   }
 
   async function authRequest(path, body) {
-    if (!supabaseUrl || !anonKey) throw Object.assign(new Error('Supabase Auth is not configured.'), { status: 503 });
-    const response = await fetch(supabaseUrl + '/auth/v1/' + path, {
-      method: 'POST', headers: { 'content-type': 'application/json', apikey: anonKey },
-      body: JSON.stringify(body)
-    });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) throw Object.assign(new Error(data.msg || data.message || data.error_description || 'Authentication failed.'), { status: response.status });
+    if (!supabaseUrl || !anonKey) {
+      console.error('[auth] configuration missing', { hasSupabaseUrl: Boolean(supabaseUrl), hasAnonKey: Boolean(anonKey) });
+      throw Object.assign(new Error('Supabase Auth is not configured. Check SUPABASE_URL and SUPABASE_ANON_KEY in Vercel.'), { status: 503 });
+    }
+    let response;
+    try {
+      response = await fetch(supabaseUrl + '/auth/v1/' + path, {
+        method: 'POST', headers: { 'content-type': 'application/json', apikey: anonKey },
+        body: JSON.stringify(body), signal: AbortSignal.timeout(15000)
+      });
+    } catch (error) {
+      console.error('[auth] Supabase request failed before receiving a response', {
+        operation: path.split('?')[0], name: error?.name || 'Error',
+        code: error?.cause?.code || error?.code || null,
+        message: String(error?.message || 'Network request failed').slice(0, 300)
+      });
+      throw Object.assign(new Error('Could not reach Supabase Auth. Check the Supabase project URL and network availability.'), { status: 503 });
+    }
+    const raw = await response.text();
+    let data = {};
+    try { data = raw ? JSON.parse(raw) : {}; } catch {}
+    if (!response.ok) {
+      const providerMessage = data.msg || data.message || data.error_description || data.error;
+      const message = typeof providerMessage === 'string' ? providerMessage : 'Supabase rejected the authentication request.';
+      console.error('[auth] Supabase rejected authentication request', {
+        operation: path.split('?')[0], status: response.status,
+        code: data.code || data.error_code || null,
+        message: message.slice(0, 300),
+        requestId: response.headers.get('sb-request-id') || response.headers.get('x-request-id') || null,
+        responseType: response.headers.get('content-type') || 'unknown'
+      });
+      throw Object.assign(new Error(message), { status: response.status });
+    }
+    if (!raw) return {};
+    if (!Object.keys(data).length && raw) {
+      console.error('[auth] Supabase returned a non-JSON success response', {
+        operation: path.split('?')[0], status: response.status,
+        responseType: response.headers.get('content-type') || 'unknown'
+      });
+      throw Object.assign(new Error('Supabase returned an unexpected response. Check the Vercel function logs.'), { status: 502 });
+    }
     return data;
   }
 
