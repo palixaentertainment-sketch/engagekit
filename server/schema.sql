@@ -1,3 +1,3 @@
 CREATE TABLE IF NOT EXISTS push_subscribers (id TEXT PRIMARY KEY, endpoint TEXT UNIQUE NOT NULL, subscription JSONB NOT NULL, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAMPTZ DEFAULT NOW());
-CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARYLY KEY, name TEXT NOT NULL, user_id TEXT, properties JSONB DEFAULT '{}'::jsonb, timestamp TIMESTAMPTZ DEFAULT NOW());
+CREATE TABLE IF NOT EXISTS events (id TEXT PRIMARY KEY, name TEXT NOT NULL, user_id TEXT, properties JSONB DEFAULT '{}'::jsonb, timestamp TIMESTAMPTZ DEFAULT NOW());
 CREATE INDEX IF NOT EXISTS events_time_idx ON events(timestamp DESC);
