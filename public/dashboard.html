@@ -1,7 +1,7 @@
 <!doctype html>
 <html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#10111a"><meta name="description" content="Manage your websites, subscribers and push notification campaigns."><title>Dashboard · EngageKit</title><link rel="stylesheet" href="/dashboard.css"></head>
 <body><header class="bar"><a class="brand" href="/"><span class="mark">E</span> EngageKit</a><div class="bar-right"><span id="user-label"></span><button id="signout" class="quiet hidden">Sign out</button></div></header>
-<main class="shell">
+<main class="shell"><div id="demo-banner" class="card hidden" style="margin:16px 0;border:1px solid #8b5cf6"><strong>DEMO MODE</strong> — Sample data only. Actions are simulated; no real notifications are sent.</div>
 <section id="auth-view" class="auth card"><div class="eyebrow">YOUR ENGAGEMENT WORKSPACE</div><h1 id="auth-title">Welcome back.</h1><p class="muted" id="auth-copy">Sign in to manage your websites and notifications.</p>
 <form id="auth-form"><label>Email<input id="email" type="email" autocomplete="email" required maxlength="254"></label><label>Password<input id="password" type="password" autocomplete="current-password" required minlength="8" maxlength="128"></label><button class="primary" id="auth-submit">Sign in</button></form>
 <div class="auth-links"><button id="forgot" class="text-button">Forgot password?</button><p class="switch muted"><span id="switch-copy">New to EngageKit?</span> <button id="switch-mode" class="text-button">Create an account</button></p></div><p id="auth-message" class="message" role="status"></p></section>
