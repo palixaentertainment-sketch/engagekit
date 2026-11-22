@@ -53,7 +53,7 @@ export function createAccountRouter(pool) {
 
   router.post('/auth/signup', limitAuth, async (req, res) => {
     const { email, password } = req.body || {};
-    if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\\.[^\s@]+$/.test(email) || email.length > 254 ||
+    if (typeof email !== 'string' || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || email.length > 254 ||
         typeof password !== 'string' || password.length < 8 || password.length > 128)
       return res.status(400).json({ error: 'Enter a valid email and a password of at least 8 characters.' });
     try { res.status(201).json(await authRequest('signup', { email: email.trim(), password })); }
