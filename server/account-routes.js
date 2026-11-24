@@ -71,7 +71,10 @@ export function createAccountRouter(pool) {
     if (!match || match[1].length > 8192) return res.status(401).json({ error: 'Sign in required.' });
     if (!supabaseUrl || !anonKey) return res.status(503).json({ error: 'Authentication is not configured.' });
     try {
-      const response = await fetch(supabaseUrl + '/auth/v1/user', { headers: { apikey: anonKey, authorization: 'Bearer ' + match[1] } });
+      const response = await fetch(supabaseUrl + '/auth/v1/user', {
+        headers: { apikey: anonKey, authorization: 'Bearer ' + match[1] },
+        signal: AbortSignal.timeout(15000)
+      });
       if (!response.ok) return res.status(401).json({ error: 'Session expired. Please sign in again.' });
       req.user = await response.json();
       if (!req.user?.id) return res.status(401).json({ error: 'Invalid session.' });
