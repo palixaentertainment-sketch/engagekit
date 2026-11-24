@@ -1,6 +1,6 @@
 ## Local Setup
 
-Requires Node 20+ and PostgreSQL. Run `npm install`, create a PostgreSQL database, and apply `server/schema.sql` (new database) or `server/migrations/001_multi_tenant_foundation.sql` (existing prototype database). Copy `.env.example` to `.env`; set `DATABASE_URL`, a strong `ENGAGEKIT_ADMIN_KEY`, a separate strong `ENGAGEKIT_SETUP_KEY`, and VAPID credentials. Generate VAPID values with `npm run vapid`; never commit the private key. Start the API with `npm start`.
+Requires Node 20+ and PostgreSQL. Run `npm install` and create a PostgreSQL database. For a new database, apply `server/schema.sql`, then apply both `server/migrations/002_customer_accounts.sql` and `server/migrations/002_api_key_scopes.sql`. For an existing prototype database, apply `server/migrations/001_multi_tenant_foundation.sql` first, then apply both `002` migrations. The two `002` files are separate, independent migrations; apply each once. The account migration requires Supabase Auth's `auth.users` table. Copy `.env.example` to `.env`; set `DATABASE_URL`, a strong `ENGAGEKIT_ADMIN_KEY`, a separate strong `ENGAGEKIT_SETUP_KEY`, and VAPID credentials. Generate VAPID values with `npm run vapid`; never commit the private key. Start the API with `npm start`.
 
 ### Create a project
 
@@ -26,7 +26,7 @@ Deploy `public/engagekit-sw.js` to the website root. Retrieve `GET /v1/push/publ
 - `POST /v1/push/subscribe`, `POST /v1/push/unsubscribe`, `POST /v1/events` (project API key)
 - `/v1/admin/*` (admin key plus project API key)
 
-Security status: early beta, not production-ready. Customer authentication depends on Supabase Auth and the customer-ownership migration. The legacy setup endpoint should be disabled after any required founder provisioning. Rate limits are currently process-local and are not suitable as a distributed production control. Quotas, durable background delivery, abuse monitoring, and an independent security review are still required.
+Security status: early beta, not production-ready. Customer authentication depends on Supabase Auth and the customer-ownership migration. Authentication responses use generic client-facing errors to avoid exposing provider details or confirming whether an email is registered; diagnostic details remain in server logs. The legacy setup endpoint should be disabled after any required founder provisioning. Authentication rate limits are process-local and best-effort only; they are not suitable as a distributed production control and must be replaced with shared rate limiting before public launch. Quotas, durable background delivery, abuse monitoring, and an independent security review are still required.
 
 
 ## Deploying the API on Vercel
