@@ -5,6 +5,7 @@ import pg from 'pg';
 import webpush from 'web-push';
 import crypto from 'node:crypto';
 import { createAccountRouter } from './account-routes.js';
+import { deliverPushBatch } from './push-delivery.js';
 
 const app = express();
 const pool = new pg.Pool({
@@ -265,27 +266,25 @@ app.post('/v1/admin/push/send', requireProjectAdmin, async (req, res) => {
       'SELECT id,subscription FROM push_subscribers WHERE project_id=$1',
       [req.projectId]
     );
-    let sent = 0, failed = 0;
-    for (const subscriber of subscribers.rows) {
-      try {
-        await webpush.sendNotification(subscriber.subscription, JSON.stringify({ title: title.trim(), body: body.trim(), url }), { TTL: 3600 });
-        sent++;
-        await client.query(
-          "INSERT INTO campaign_results(campaign_id,subscriber_id,status) VALUES($1,$2,'sent')",
-          [campaignId, subscriber.id]
-        );
-      } catch (error) {
-        failed++;
-        const expired = [404, 410].includes(error.statusCode);
-        await client.query(
-          'INSERT INTO campaign_results(campaign_id,subscriber_id,status,response_code,error_message) VALUES($1,$2,$3,$4,$5)',
-          [campaignId, subscriber.id, expired ? 'expired' : 'failed', error.statusCode || null, String(error.message || 'Delivery failed').slice(0, 500)]
-        );
-        if (expired) await client.query('DELETE FROM push_subscribers WHERE project_id=$1 AND id=$2', [req.projectId, subscriber.id]);
-      }
-    }
+    const totals = await deliverPushBatch({
+      subscribers: subscribers.rows,
+      concurrency: Number(process.env.PUSH_DELIVERY_CONCURRENCY || 10),
+      deliver: subscriber => webpush.sendNotification(
+        subscriber.subscription,
+        JSON.stringify({ title: title.trim(), body: body.trim(), url }),
+        { TTL: 3600 }
+      ),
+      recordResult: (subscriber, result) => client.query(
+        'INSERT INTO campaign_results(campaign_id,subscriber_id,status,response_code,error_message) VALUES($1,$2,$3,$4,$5)',
+        [campaignId, subscriber.id, result.status, result.responseCode || null, result.errorMessage || null]
+      ),
+      removeSubscriber: subscriber => client.query(
+        'DELETE FROM push_subscribers WHERE project_id=$1 AND id=$2',
+        [req.projectId, subscriber.id]
+      )
+    });
     await client.query("UPDATE campaigns SET status='sent',sent_at=NOW() WHERE id=$1", [campaignId]);
-    res.json({ campaignId, total: subscribers.rowCount, sent, failed });
+    res.json({ campaignId, ...totals });
   } catch {
     if (campaignId) await client.query("UPDATE campaigns SET status='failed' WHERE id=$1", [campaignId]).catch(() => {});
     res.status(500).json({ error: 'Send failed' });
