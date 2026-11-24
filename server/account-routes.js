@@ -1,5 +1,7 @@
 import express from 'express';
 import crypto from 'node:crypto';
+import webpush from 'web-push';
+import { deliverPushBatch } from './push-delivery.js';
 
 const hash = value => crypto.createHash('sha256').update(value).digest('hex');
 const safePath = value => typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') && !value.includes('\\');
@@ -51,7 +53,7 @@ export function createAccountRouter(pool) {
         requestId: response.headers.get('sb-request-id') || response.headers.get('x-request-id') || null,
         responseType: response.headers.get('content-type') || 'unknown'
       });
-      throw Object.assign(new Error(message), { status: response.status });
+      throw Object.assign(new Error('Authentication provider rejected the request.'), { status: response.status, providerCode: data.code || data.error_code || null });
     }
     if (!raw) return {};
     if (!Object.keys(data).length && raw) {
@@ -69,7 +71,10 @@ export function createAccountRouter(pool) {
     if (!match || match[1].length > 8192) return res.status(401).json({ error: 'Sign in required.' });
     if (!supabaseUrl || !anonKey) return res.status(503).json({ error: 'Authentication is not configured.' });
     try {
-      const response = await fetch(supabaseUrl + '/auth/v1/user', { headers: { apikey: anonKey, authorization: 'Bearer ' + match[1] } });
+      const response = await fetch(supabaseUrl + '/auth/v1/user', {
+        headers: { apikey: anonKey, authorization: 'Bearer ' + match[1] },
+        signal: AbortSignal.timeout(15000)
+      });
       if (!response.ok) return res.status(401).json({ error: 'Session expired. Please sign in again.' });
       req.user = await response.json();
       if (!req.user?.id) return res.status(401).json({ error: 'Invalid session.' });
@@ -91,21 +96,33 @@ export function createAccountRouter(pool) {
         typeof password !== 'string' || password.length < 8 || password.length > 128)
       return res.status(400).json({ error: 'Enter a valid email and a password of at least 8 characters.' });
     try { res.status(201).json(await authRequest('signup', { email: email.trim(), password })); }
-    catch (error) { res.status(error.status || 503).json({ error: error.message }); }
+    catch (error) {
+      const status = error.status || 503;
+      const message = status >= 500 ? 'Account service is temporarily unavailable.' : status === 429 ? 'Too many attempts. Please try again later.' : 'Unable to create an account with those details.';
+      res.status(status).json({ error: message });
+    }
   });
 
   router.post('/auth/signin', limitAuth, async (req, res) => {
     const { email, password } = req.body || {};
     if (typeof email !== 'string' || typeof password !== 'string') return res.status(400).json({ error: 'Email and password are required.' });
     try { res.json(await authRequest('token?grant_type=password', { email: email.trim(), password })); }
-    catch (error) { res.status(error.status || 503).json({ error: error.message }); }
+    catch (error) {
+      const status = error.status || 503;
+      const message = status >= 500 ? 'Account service is temporarily unavailable.' : status === 429 ? 'Too many attempts. Please try again later.' : 'Email or password is incorrect.';
+      res.status(status).json({ error: message });
+    }
   });
 
   router.post('/auth/recover', limitAuth, async (req, res) => {
     const { email } = req.body || {};
     if (typeof email !== 'string' || email.length > 254) return res.status(400).json({ error: 'Enter your account email.' });
     try { res.json(await authRequest('recover', { email: email.trim() })); }
-    catch (error) { res.status(error.status || 503).json({ error: error.message }); }
+    catch (error) {
+      const status = error.status || 503;
+      const message = status >= 500 ? 'Account service is temporarily unavailable.' : status === 429 ? 'Too many attempts. Please try again later.' : 'If an account matches that email, recovery instructions will be sent.';
+      res.status(status >= 500 ? status : 200).json({ ok: true, message });
+    }
   });
 
   router.get('/account/me', requireUser, (req, res) => res.json({ user: { id: req.user.id, email: req.user.email } }));
@@ -212,21 +229,28 @@ export function createAccountRouter(pool) {
     const {title,body,url='/'}=req.body||{};
     if(typeof title!=='string'||!title.trim()||title.length>120||typeof body!=='string'||!body.trim()||body.length>2000)return res.status(400).json({error:'Add a title and message (maximum 120 and 2,000 characters).'});
     if(!safePath(url))return res.status(400).json({error:'Destination must be a safe relative path.'});
-    const client=await pool.connect();let campaignId;
+    let campaignId;
     try{
-      await client.query('BEGIN');
-      const created=await client.query("INSERT INTO campaigns(project_id,title,body,destination_path,status) VALUES($1,$2,$3,$4,'sending') RETURNING id",[req.project.id,title.trim(),body.trim(),url]);campaignId=created.rows[0].id;
-      const subscribers=await client.query('SELECT id,subscription FROM push_subscribers WHERE project_id=$1',[req.project.id]);
-      const webpush=(await import('web-push')).default;webpush.setVapidDetails(process.env.VAPID_SUBJECT||'mailto:support@engagekit.app',pub,priv);
-      let sent=0,failed=0;
-      for(const item of subscribers.rows){
-        try{await webpush.sendNotification(item.subscription,JSON.stringify({title:title.trim(),body:body.trim(),url}),{TTL:3600});sent++;await client.query("INSERT INTO campaign_results(campaign_id,subscriber_id,status) VALUES($1,$2,'sent')",[campaignId,item.id]);}
-        catch(error){failed++;const expired=[404,410].includes(error.statusCode);await client.query('INSERT INTO campaign_results(campaign_id,subscriber_id,status,response_code,error_message) VALUES($1,$2,$3,$4,$5)',[campaignId,item.id,expired?'expired':'failed',error.statusCode||null,String(error.message||'Delivery failed').slice(0,500)]);if(expired)await client.query('DELETE FROM push_subscribers WHERE project_id=$1 AND id=$2',[req.project.id,item.id]);}
-      }
-      await client.query("UPDATE campaigns SET status=$2,sent_at=NOW() WHERE id=$1",[campaignId,failed&&sent===0?'failed':'sent']);await client.query('COMMIT');
-      res.json({campaignId,total:subscribers.rowCount,sent,failed});
-    }catch{await client.query('ROLLBACK').catch(()=>{});res.status(500).json({error:'Campaign could not be sent.'});}
-    finally{client.release();}
+      const created=await pool.query("INSERT INTO campaigns(project_id,title,body,destination_path,status) VALUES($1,$2,$3,$4,'sending') RETURNING id",[req.project.id,title.trim(),body.trim(),url]);
+      campaignId=created.rows[0].id;
+      const subscribers=await pool.query('SELECT id,subscription FROM push_subscribers WHERE project_id=$1',[req.project.id]);
+      webpush.setVapidDetails(process.env.VAPID_SUBJECT||'mailto:support@engagekit.app',pub,priv);
+      const totals=await deliverPushBatch({
+        subscribers:subscribers.rows,
+        concurrency:Number(process.env.PUSH_DELIVERY_CONCURRENCY||10),
+        deliver:item=>webpush.sendNotification(item.subscription,JSON.stringify({title:title.trim(),body:body.trim(),url}),{TTL:3600}),
+        recordResult:(item,result)=>pool.query(
+          'INSERT INTO campaign_results(campaign_id,subscriber_id,status,response_code,error_message) VALUES($1,$2,$3,$4,$5)',
+          [campaignId,item.id,result.status,result.responseCode||null,result.errorMessage||null]
+        ),
+        removeSubscriber:item=>pool.query('DELETE FROM push_subscribers WHERE project_id=$1 AND id=$2',[req.project.id,item.id])
+      });
+      await pool.query("UPDATE campaigns SET status='sent',sent_at=NOW() WHERE id=$1",[campaignId]);
+      res.json({campaignId,...totals});
+    }catch{
+      if(campaignId)await pool.query("UPDATE campaigns SET status='failed' WHERE id=$1",[campaignId]).catch(()=>{});
+      res.status(500).json({error:'Campaign could not be sent. Some notifications may already have been delivered; check campaign results before retrying.'});
+    }
   });
 
   return router;
