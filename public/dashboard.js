@@ -1,7 +1,7 @@
 (() => {
   const $ = (id) => document.getElementById(id);
   const API = '/v1';
-  const state = { demo: true, token: '', mode: 'signin', project: null, projects: [], subscribers: [], events: [] };
+  const state = { demo: false, token: localStorage.getItem('ek_access_token') || '', mode: 'signin', project: null, projects: [], subscribers: [], events: [] };
   const esc = (v='') => String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
   const date = v => v ? new Date(v).toLocaleString() : '—';
   const show = (el, yes=true) => el?.classList.toggle('hidden', !yes);
