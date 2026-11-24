@@ -1,11 +1,6 @@
 export async function subscribeToPush({
-  apiUrl,
-  apiKey,
-  serviceWorkerPath = '/engagekit-sw.js',
-  serviceWorkerRegistration,
-  publicKey,
-  subscriberId,
-  requestPermission = false
+  apiUrl, apiKey, serviceWorkerPath = '/engagekit-sw.js',
+  serviceWorkerRegistration, publicKey, subscriberId, requestPermission = false
 } = {}) {
   if (!apiUrl || !apiKey || !publicKey) throw TypeError('apiUrl, apiKey and publicKey required');
   if (!('serviceWorker' in navigator) || !('PushManager' in window) || !('Notification' in window))
@@ -21,15 +16,12 @@ export async function subscribeToPush({
       : 'Notification permission not granted. Call from a user click with requestPermission: true');
   }
 
-  // Reuse an explicitly supplied registration (recommended for sites with an existing
-  // service worker). Otherwise reuse the current registration before creating one.
+  // Reuse an explicitly supplied registration (recommended for existing workers).
   let registration = serviceWorkerRegistration;
   if (registration && !registration.pushManager) {
     throw TypeError('serviceWorkerRegistration must be a ServiceWorkerRegistration');
   }
-  if (!registration) {
-    registration = await navigator.serviceWorker.getRegistration();
-  }
+  if (!registration) registration = await navigator.serviceWorker.getRegistration();
   if (!registration) {
     if (!serviceWorkerPath) throw Error('No service worker registration available');
     registration = await navigator.serviceWorker.register(serviceWorkerPath);
