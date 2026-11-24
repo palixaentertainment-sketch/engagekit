@@ -50,7 +50,7 @@
       const type=response.headers.get('content-type')||'unknown content type';
       const requestId=response.headers.get('x-vercel-id')||response.headers.get('sb-request-id')||response.headers.get('x-request-id');
       const snippet=String(detail||raw||'The server returned an empty response.').replace(/\\s+/g,' ').slice(0,500);
-      throw new Error('Request failed (HTTP '+response.status+'). '+snippet+' [Response: '+type+(requestId?'; Request ID: '+requestId:'')+']');
+      throw new Error('Request failed for '+API+path+' (HTTP '+response.status+'). '+snippet+' [Response: '+type+(requestId?'; Request ID: '+requestId:'')+']');
     }
     if(raw&&!Object.keys(data).length) throw new Error('The server returned an unreadable response (HTTP '+response.status+', '+(response.headers.get('content-type')||'unknown content type')+').');
     return data;
