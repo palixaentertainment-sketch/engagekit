@@ -4,7 +4,7 @@ Requires Node 20+ and PostgreSQL. Run `npm install`, create a PostgreSQL databas
 
 ### Create a project
 
-Project provisioning is currently founder-operated; customer accounts and self-service billing are not implemented. Send a `POST /v1/projects` request with the `x-engagekit-setup-key` header and JSON fields `name`, `slug`, and optional `websiteUrl` / `keyName`. The API returns two keys once: a public browser key (`ek_pub_...`) and a secret server-side key (`ek_sec_...`). Only SHA-256 hashes are persisted. The public key can be embedded in the browser SDK; the secret key must never be exposed publicly. Slugs must be unique. Disable provisioning by removing `ENGAGEKIT_SETUP_KEY` after initial setup.
+Customer accounts are supported through Supabase Auth. Configure `SUPABASE_URL` and `SUPABASE_ANON_KEY`, then customers can register and sign in through the dashboard. Authenticated customers create projects at `POST /v1/account/projects`; project ownership is enforced on project, key, analytics and campaign routes. The legacy founder setup route `POST /v1/projects` remains available only when `ENGAGEKIT_SETUP_KEY` is configured. The API returns two keys once: a public browser key (`ek_pub_...`) and a secret server-side key (`ek_sec_...`). Only SHA-256 hashes are persisted. The public key can be embedded in the browser SDK; the secret key must never be exposed publicly. Slugs must be unique. Disable provisioning by removing `ENGAGEKIT_SETUP_KEY` after initial setup.
 
 Example request body:
 
@@ -26,7 +26,7 @@ Deploy `public/engagekit-sw.js` to the website root. Retrieve `GET /v1/push/publ
 - `POST /v1/push/subscribe`, `POST /v1/push/unsubscribe`, `POST /v1/events` (project API key)
 - `/v1/admin/*` (admin key plus project API key)
 
-Security status: early prototype, not production-ready. The hosted Vercel URL is a static preview; the API is not deployed or connected to a production database. Rate limits, customer authentication, project key rotation/revocation UI, quotas, background delivery, and a security review are still required.
+Security status: early beta, not production-ready. Customer authentication depends on Supabase Auth and the customer-ownership migration. The legacy setup endpoint should be disabled after any required founder provisioning. Rate limits are currently process-local and are not suitable as a distributed production control. Quotas, durable background delivery, abuse monitoring, and an independent security review are still required.
 
 
 ## Deploying the API on Vercel

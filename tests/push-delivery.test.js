@@ -16,7 +16,7 @@ test('delivers with bounded concurrency and records successes', async () => {
   assert.deepEqual(result, { total: 12, sent: 12, failed: 0, expired: 0 });
 });
 
-test('records failures and removes expired subscriptions', async () => {
+test('records transport failures and removes expired subscriptions', async () => {
   const subscribers = [{ id: 'gone' }, { id: 'bad' }, { id: 'ok' }];
   const results = [], removed = [];
   const result = await deliverPushBatch({
@@ -31,6 +31,23 @@ test('records failures and removes expired subscriptions', async () => {
   assert.deepEqual(result, { total: 3, sent: 1, failed: 1, expired: 1 });
   assert.deepEqual(removed, ['gone']);
   assert.deepEqual(results.sort(), [['bad', 'failed'], ['gone', 'expired'], ['ok', 'sent']]);
+});
+
+test('propagates success-result persistence errors', async () => {
+  const failure = new Error('database unavailable');
+  await assert.rejects(() => deliverPushBatch({
+    subscribers: [{ id: 'one' }], deliver: async () => {},
+    recordResult: async () => { throw failure; }, removeSubscriber: async () => {}
+  }), error => error === failure);
+});
+
+test('propagates failed-result persistence errors', async () => {
+  const failure = new Error('database unavailable');
+  await assert.rejects(() => deliverPushBatch({
+    subscribers: [{ id: 'one' }],
+    deliver: async () => { throw Object.assign(new Error('unavailable'), { statusCode: 503 }); },
+    recordResult: async () => { throw failure; }, removeSubscriber: async () => {}
+  }), error => error === failure);
 });
 
 test('rejects missing persistence callbacks', async () => {
