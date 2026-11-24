@@ -1,1 +1,0 @@
-EngageKit dashboard prototype. Serve this directory statically, enter the API URL and admin key. Admin key remains in page memory. Do not publish it with a shared secret embedded. Production auth is not implemented.
